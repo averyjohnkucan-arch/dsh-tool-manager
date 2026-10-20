@@ -13,7 +13,7 @@ import * as plugin from '../index.js';import {defaults} from '../lib/settings.js
 const def=name=>defineTool({name,description:`Fixture ${name}: browse a page or execute the original behavior`,parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},execute:async()=>name});
 const override=mode=>({mode,owner:'',summary:'',group:'',skills:[]});
 async function fixture(t,tools={},names=['read','ask_user_question','browser_click'],defaultMode='inherit',extra={}){
- const dir=await mkdtemp(join(tmpdir(),'tool-manager-audit-'));t.after(()=>rm(dir,{recursive:true,force:true}));await writeFile(join(dir,'settings.json'),JSON.stringify({...defaults(),compactBrowser:false,tools,defaultMode,...extra}));
+ const dir=await mkdtemp(join(tmpdir(),'tool-manager-audit-'));t.after(()=>rm(dir,{recursive:true,force:true}));await writeFile(join(dir,'settings.json'),JSON.stringify({...defaults(),compactBrowser:false,fastSelection:false,tools,defaultMode,...extra}));
  const ctx=new Context();new SystemPrompt(ctx,{});new ToolRuntime(ctx);new SessionStore(ctx);new Projection(ctx);new Skills(ctx);const agents=[];const defs=new Map(),routes=new Map();let route;
  new(class extends Service{constructor(){super(ctx,'agents');}list(){return agents;}})();new(class extends Service{constructor(){super(ctx,'webServer');}register(r){route=r;routes.set(r.path,r);return()=>routes.delete(r.path);}getOrigin(){return 'http://127.0.0.1:3099';}})();
  for(const name of names){const d=def(name);defs.set(name,d);ctx.tools.register(d);}
@@ -138,4 +138,12 @@ test('saved use-once lifetime requires discover policy and supports an explicit 
  assert.deepEqual((await f.call('tool_manager_select',{names:['browser_click']})).value.oneShot,['browser_click']);
  assert.deepEqual((await f.call('tool_manager_select',{names:['browser_click'],use_once:false})).value.oneShot,[]);
  assert.equal((await f.call('tool_manager_select',{names:['read'],use_once:true})).isError,true);
+});
+test('combined find uses current request route, commits only selected schemas, closes browser and keeps candidates out of parent context',async t=>{
+ const f=await fixture(t,{},['browser_click','browser_type'],'discover',{compactBrowser:true,fastSelection:true,autoRetrieval:{enabled:true,minScore:0}});let request;
+ new(class extends Service{constructor(){super(f.ctx,'llm');}async prepareCall(config,_signal,configure){assert.deepEqual({provider:config.provider,model:config.model},{provider:'current',model:'model'});const controls=configure({}, {reasoning:{efforts:[{id:'off'}]}});assert.equal(controls.reasoningEffort,'off');return{config:{...config,...controls},async *stream(r){request=r;yield{type:'block-end',index:0,block:{type:'tool-call',name:'select_tools',arguments:'{"names":["browser_click"],"skills":[]}'}};yield{type:'finish',reason:{kind:'tool-calls'}};}};}})();
+ await f.install();await f.ctx.waterfall('agent/request',{agent:f.agent},()=>Promise.resolve({provider:'current',model:'model',reasoningEffort:'high'}));
+ const user={role:'user',id:'fast-user',source:{kind:'user'},content:[{type:'text',text:'click a page'}]};const pre=await f.ctx.waterfall('agent/pre-step',{agent:f.agent,messages:[user],turn:1,signal:new AbortController().signal},()=>Promise.resolve({kind:'enter',messages:[user]}));assert.equal(pre.messages.length,1,'discovery must be model-initiated');
+ const result=await f.call('browse_tools',{action:'find',task:'click a page',keywords:['browser']});assert.equal(result.isError,false);assert.equal(result.value.status,'1 tools selected');assert.ok(request.messages[0].content[0].text.includes('browser_type'));assert.ok(!JSON.stringify(result.content).includes('browser_type'));assert.equal(result.meta.toolManager.selectionTrace.stages.length,2);assert.equal(f.ctx.tools.get('browser_click',f.agent),undefined,'no activation before commit');
+ f.agent.session.append('tool/result',{turn:1,step:1,message:{id:'fast-result',role:'tool',toolCallId:'fast-call',content:result.content,source:{kind:'tool',name:'browse_tools'}},meta:result.meta},{surfaceOp:'append'});await f.step();assert.ok(f.ctx.tools.get('browser_click',f.agent));assert.equal(f.ctx.tools.get('browser_type',f.agent),undefined);assert.equal((await f.call('browser_click')).isError,false,'no separate close call required');
 });

@@ -20,3 +20,8 @@ test('use-once reselect changes lifetime and successful compaction removes pendi
  assert.throws(()=>select(empty(),['a'],[],7,['b']));
  const cfg=defaults();cfg.tools.a={mode:'discover',owner:'',group:'',summary:'',skills:[],lifetime:'once'};assert.equal(validate(cfg).tools.a.lifetime,'once');assert.throws(()=>validate({...cfg,tools:{a:{...cfg.tools.a,lifetime:'invalid'}}}));
 });
+test('switching to model-initiated discovery dismisses an old automatic browser without dropping selected tools',()=>{
+ const original={...select(empty(),['keep']),browser:{open:true,added:[],resolutionSeq:-1,status:''}};
+ const dismissed=fold(original,{type:'user/message',seq:20,data:{source:{kind:KEY,dismissBrowser:true}}});assert.equal(dismissed.browser.open,false);assert.equal(dismissed.browser.resolutionSeq,20);assert.deepEqual(dismissed.selected,['keep']);
+ const opened=fold(dismissed,{type:'tool/result',seq:21,data:{message:{},meta:{toolManager:{owner:KEY,browser:{action:'open'}}}}});assert.equal(opened.browser.manual,true);
+});

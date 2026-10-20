@@ -39,3 +39,7 @@ The unresolved-browser turn-stop path is also tested: two bounded steering messa
 ## Selection lifetime (0.2.1)
 
 Persistent remains the default for old and new settings. Optional per-tool lifetime or per-selection use_once retires an on-demand tool only from committed native/PTC success events. Errors and replacement copies do not retire it. Replay restores the same state. Explicit closure still waits for successful compaction. Long instructions load through mapped/explicit skills, with no rewriting of provider schemas or task arguments/results. This does not control engine KV eviction.
+
+## Fast selection (0.3.0)
+
+One outer find call contains BM25 discovery and a bounded auxiliary model selection through public LlmRuntime.prepareCall. Exact committed request-header routing takes precedence over the agent/request fallback. The preparation callback chooses only an advertised off/none effort. Main conversation options are never mutated. Candidate lists live in presentation metadata only, not model-facing output. Only validated offered names can be committed; no task dispatch occurs inside selection. Automatic suggestions are suppressed in fast mode. Existing legacy mode remains available.

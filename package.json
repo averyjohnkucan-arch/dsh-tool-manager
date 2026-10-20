@@ -1,6 +1,6 @@
 {
   "name": "dsh-tool-manager",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "type": "module",
   "license": "MIT",
   "description": "Search, select and manage tool context through supported DSH hooks.",

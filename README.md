@@ -2,6 +2,16 @@
 
 A standalone Cordis plugin for DeepSeek Harness 0.2.1-rc.2. It uses public services and hooks without modifying Harness core or other plugins.
 
+## Fast model-initiated discovery (0.3.0)
+
+Enable **Settings → Tool manager → Preferences → Fast tool selection**. New installations enable it by default; existing saved configurations preserve their previous mode until enabled. Automatic retrieval never runs in this mode, even if its legacy switch was saved as enabled. A persistent prompt asks the model to search before technical tasks; casual conversation needs no discovery call.
+
+`browse_tools(action="find", task="brief goal", keywords=["selective", "terms"])` performs two stages inside one visible tool call: local BM25 search, then a short auxiliary selection request through DSH's public LLM service. It uses the conversation's current provider/model with an advertised `off` or `none` reasoning effort, a 512-token cap and a 45-second timeout. Main answer reasoning is unchanged. This is a second model request, not a zero-cost selection, and its latency/cache impact depends on the provider.
+
+The selector receives bounded candidate names and descriptions, never the parent conversation or executable task schemas. It can select exact offered tool/skill names or none. The main conversation receives only the selection receipt, chosen names and explicitly loaded skill guidance; candidate results never enter its context. Both search and selection stages are stored in the result's `toolManager.selectionTrace` presentation metadata for trajectory/audit inspection. No fake agent steps are inserted. A successful committed receipt opens the chosen tools and closes the browser automatically; a separate close call is unnecessary. Persistent tools still close with `action="close_tools"` at successful compaction.
+
+If the model does not advertise reasoning off, fast selection refuses instead of silently reasoning; manual `search`/`add`/`close` remains available. Invalid responses, invented names, truncation, provider errors, unexpected reasoning and cancellation never activate tools. No core or other plugin files are changed.
+
 ## Compact tool browser
 
 New installations default to **All tools on demand** and **Use one tool browser**. Existing saved baselines and explicit tool settings are preserved. Pin essential tools as Always available; all other unconfigured tools require discovery, including tools registered later. Older Provider defaults and Stock tools baselines remain selectable.
@@ -20,7 +30,7 @@ The three older `tool_manager_search`, `tool_manager_select`, and `tool_manager_
 
 ## Automatic tool_retrieval
 
-Open **Settings → Tool manager → Automatic tool retrieval**. The feature is off until enabled. It suggests five relevant tools before a new user request, using local BM25. Suggestions appear as an expandable `tool_retrieval` notice and do not activate tools. The model must select, decline, or search for more; after adding, it must close the browser before task-tool execution.
+Legacy compatibility option: open **Settings → Tool manager → Tool search tuning**. Fast selection always suppresses automatic suggestions. The feature is off until enabled. It suggests five relevant tools before a new user request, using local BM25. Suggestions appear as an expandable `tool_retrieval` notice and do not activate tools. The model must select, decline, or search for more; after adding, it must close the browser before task-tool execution.
 
 Tuning controls include maximum results (1–20), minimum relevance, summary length, total injected characters, cooldown, matching skills, and already-visible tools. Relevance is normalized as `BM25 / (BM25 + 2)`, not a probability. Empty results still allow an explicit none/search decision. A committed notice is not repeated for the same claimed user batch; rejected/cancelled steps do not log a notice. Optional skill discovery has a one-second budget and falls back to tool matches.
 
