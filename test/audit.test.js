@@ -58,3 +58,21 @@ test('standalone skills are searchable without selecting or activating any tool'
  const r=await f.call('tool_manager_search',{task:'Bash pipelines'});assert.equal(r.isError,false);assert.ok(r.value.skills.some(s=>s.name==='bash-workflow'));assert.ok(!r.value.skills.some(s=>s.name==='private-skill'));
  assert.equal(f.ctx.tools.get('browser_click',f.agent).name,'browser_click');const bad=await f.call('tool_manager_select',{names:['read'],skills:['private-skill']});assert.equal(bad.isError,true);
 });
+test('catalog reads are mutation-free and unchanged agent steps do not rebuild tool restrictions',async t=>{
+ const names=Array.from({length:200},(_,i)=>'fixture_'+i);
+ const f=await fixture(t,{fixture_0:override('discover')},names);await f.install();
+ for(let i=0;i<25;i++)f.addAgent('idle-'+i);
+ const injection=[];f.ctx.emit('webserver/index-inject',injection);const capability=injection.find(x=>x.name==='__DSH_TOOL_MANAGER__').value;
+ let changes=0;f.ctx.on('tools/change',()=>{changes++;});
+ const start=performance.now();
+ for(let i=0;i<10;i++){
+  const body=JSON.stringify({action:'list'});const req={headers:{authorization:'Bearer '+capability.token,'content-type':'application/json'},method:'POST',async *[Symbol.asyncIterator](){yield body;}};
+  let text,status=200;const res={setHeader(){},writeHead(n){status=n;},end(s){text=s;}};
+  await f.route().handler(req,res);assert.equal(status,200);const data=JSON.parse(text);assert.ok(data.tools.some(x=>x.name==='fixture_199'));assert.equal(data.agents.length,26);
+ }
+ const elapsed=performance.now()-start;
+ assert.equal(changes,0,'opening the settings catalog must not create/dispose restrictions in any agent');
+ await f.step();await f.step();assert.equal(changes,0,'unchanged steps must reuse the existing scoped mask');
+ assert.equal(f.ctx.tools.get('fixture_0',f.agent),undefined,'cached policy must still hide discovery tools');
+ t.diagnostic(`10 catalog reads, 200 tools and 26 agents: ${elapsed.toFixed(1)} ms, zero registry mutations`);
+});

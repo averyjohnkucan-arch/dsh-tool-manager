@@ -14,6 +14,10 @@ Audited against installed DeepSeek Harness 0.2.1-rc.2 public Cordis services.
 - Folder and checkbox bulk operations include descendants across pages, preserve unrelated tools and metadata, and remain drafts until saved. Discovery controls are protected.
 - Semantic search only ranks the caller-visible catalog and falls back to BM25 on provider failure. Responses are bounded while streaming.
 
+## Catalog performance and recovery
+
+Catalog reads no longer enumerate and mutate restrictions for every agent, rescan package source synchronously, or initialize inactive session projections. The regression fixture serves ten reads with 200 tools and 26 agents without any registry mutations. Unchanged agent steps reuse policy masks; registration, settings, and selected-tool changes still invalidate them. A simulated stalled request verifies timeout and successful retry.
+
 ## Limits
 
 Tool ownership is inferred from package source because the public registry does not expose authoritative ownership. Unmatched or ambiguous providers are labelled accordingly and can be mapped manually. Unregistered lazy tools cannot be enumerated. DSH's scope-owned schema exemption prevents hiding some schemas, although explicit execution denial still applies. Existing provider prompts and historic results remain owned by their providers.
