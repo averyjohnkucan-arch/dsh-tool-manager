@@ -1,0 +1,55 @@
+# DSH Tool manager
+
+A standalone Cordis plugin for DeepSeek Harness 0.2.1-rc.2. No core patches and no modifications to other plugins.
+
+Open **Settings → Tool manager**. The catalog is grouped into collapsible plugin folders and nested custom folders. Edit each tool's availability, summary, folder path, plugin attribution, order and associated DSH skill names; save the changes. Folder order is editable inside each expanded folder. Lower order values appear first. The catalog is paged at 50 tools per page and can be filtered by name, description or folder.
+
+## Model workflow
+
+- `tool_search(task="what I need to accomplish")` searches compact tool descriptions without exposing full schemas. Omit `task` to browse groups; pass `folder`, `offset`, and `limit` for browsing. Search results also include matching skill summaries, when the skill service is available.
+- `tool_select(names=[...], skills=[...])` opens 1–7 tools per call, configurable in settings. It loads explicit tool-to-skill mappings and additional selected skills through the public DSH skill service, respecting model-invocation policy. No selected tool action is automatically executed.
+- `tool_close(names=[...])` queues closure. Tools remain callable until a successful `compaction/end`. Failed compaction changes nothing. Queuing closure keeps this plugin’s system-prompt text and callable schemas identical; the close acknowledgment is logged as the normal tool result. Reselecting a queued tool cancels closure.
+
+Selection receipts are normal tool-result presentation metadata. A pure session projection reconstructs selection from committed Native/PTC tool results and successful compaction events. Prompt text describes current windows and how to close them. Ordinary tool results and skill bodies already in history remain until DSH compacts that history; this plugin never rewrites or prunes it.
+
+## Visibility
+
+Tools may be **Always available**, **Search and select**, or **Disabled**. Defaults keep shell/file tools and the skill loader available; discovery controls always remain available. Restrictions apply independently per agent, intersect with other policies, and never grant permissions another policy withheld. Explicit disabling also uses a monotonic execution guard.
+
+DSH exempts a scope's own registrations and reserved transports from its restriction API. Such tools are labelled **Scope-owned: schema cannot be hidden**; their owners must cooperate for schema removal. Permission and execution policy is preserved, and explicitly disabled tools are denied. Lazy tools only appear once their provider registers them. This plugin cannot enumerate hidden, unregistered backends.
+
+Tool ownership is not an authoritative field on DSH's public tool definitions. The plugin infers unique matches from installed package source literals, labels them as inferred, and provides explicit owner/group overrides. Unknown or ambiguous tools are labelled Unknown. Discovery uses the calling agent's currently permitted registry view; it does not bypass another plugin's restrictions.
+
+Catalog summaries and ordering are editable. These changes affect discovery presentation and search; they deliberately do not rewrite another provider's callable schema, parameter definitions, prompt sections, or tool names.
+
+## Optional description embeddings
+
+BM25 is built in and requires no model. The semantic index is a separate module, configured under **Tool-description embeddings and semantic search**. Supply an OpenAI-compatible API root (usually ending in `/v1`), model name, and optional key; enable semantic search, then **Save and build index**. Do not assume the sample local endpoint is running: it is only an editable default, and semantic search starts disabled.
+
+Only metadata (name, plugin, folder and summary) is embedded during index builds. Enabled semantic search also sends the task query to that provider. A loopback local endpoint keeps the work local; remote endpoints must use HTTPS. No model, runtime, or weights are silently downloaded. The plugin does not depend on the Knowledge plugin, so they can be maintained or removed independently.
+
+The index persists atomically and reuses unchanged descriptions. A changed endpoint/model or changed tool description invalidates relevant entries. BM25 and semantic rankings use reciprocal-rank fusion. Semantic errors or a missing/stale index produce a visible BM25 fallback. Index results are filtered against the requesting agent's allowed catalog before ranking; an index built for one scope cannot reveal another scope's tools.
+
+## Storage and modules
+
+`$DSH_HOME/dsh-tool-manager/` (default `~/.dsh/dsh-tool-manager/`) holds `settings.json` and `tool-embeddings.json`, written with owner-only permissions. The settings may contain the configured embedding API key. The tool context state itself comes from the existing DSH session log.
+
+- `lib/catalog.js`: discovery metadata and best-effort provenance.
+- `lib/search.js`: BM25.
+- `lib/semantic.js`: embedding transport, persistent index, cosine ranking and fusion.
+- `lib/state.js`: pure select/close/compaction state transitions.
+- `lib/settings.js`: configuration validation and atomic persistence.
+- `index.js`: public Cordis registry, lifecycle, projection, skill and authenticated Web API adapters.
+- `client.js`: React settings slot using DSH theme tokens.
+
+## Local development
+
+Install through the official CLI:
+
+```
+dsh plugin --profile web add /absolute/path/to/dsh-tool-manager --config.ignore-scripts=true
+```
+
+Install development dependencies inside this plugin and run `node --test test/*.test.js`. Syntax-check `index.js` and `client.js`. Reconnect/refresh the browser for Client updates; Host entry replacement may require a coordinated DSH restart. Avoid restarting a harness that is processing another plugin's work.
+
+Tests cover real DSH scoped restrictions and permission intersections, the full search→select→skill→close lifecycle using real DSH tools/session projections, failed/successful compaction, replay, persistent settings, semantic-index reuse and fallback, scope filtering, and structural rendering of the settings tree. Hardware embedding throughput and visual layout across platforms have not been benchmarked.
