@@ -12,8 +12,8 @@ import {createScope} from '@deepseek-ai/dsh-scope';
 import * as plugin from '../index.js';import {defaults} from '../lib/settings.js';import {CONTROL} from '../lib/state.js';
 const def=name=>defineTool({name,description:`Fixture ${name}: browse a page or execute the original behavior`,parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},execute:async()=>name});
 const override=mode=>({mode,owner:'',summary:'',group:'',skills:[]});
-async function fixture(t,tools={},names=['read','ask_user_question','browser_click'],defaultMode='inherit'){
- const dir=await mkdtemp(join(tmpdir(),'tool-manager-audit-'));t.after(()=>rm(dir,{recursive:true,force:true}));await writeFile(join(dir,'settings.json'),JSON.stringify({...defaults(),tools,defaultMode}));
+async function fixture(t,tools={},names=['read','ask_user_question','browser_click'],defaultMode='inherit',extra={}){
+ const dir=await mkdtemp(join(tmpdir(),'tool-manager-audit-'));t.after(()=>rm(dir,{recursive:true,force:true}));await writeFile(join(dir,'settings.json'),JSON.stringify({...defaults(),compactBrowser:false,tools,defaultMode,...extra}));
  const ctx=new Context();new SystemPrompt(ctx,{});new ToolRuntime(ctx);new SessionStore(ctx);new Projection(ctx);new Skills(ctx);const agents=[];const defs=new Map(),routes=new Map();let route;
  new(class extends Service{constructor(){super(ctx,'agents');}list(){return agents;}})();new(class extends Service{constructor(){super(ctx,'webServer');}register(r){route=r;routes.set(r.path,r);return()=>routes.delete(r.path);}getOrigin(){return 'http://127.0.0.1:3099';}})();
  for(const name of names){const d=def(name);defs.set(name,d);ctx.tools.register(d);}
@@ -25,7 +25,7 @@ async function fixture(t,tools={},names=['read','ask_user_question','browser_cli
  t.after(async()=>{await fiber?.dispose();for(const a of agents)await a.ctx.fiber.dispose();await ctx.fiber.dispose();});
  return {ctx,agent,scope,defs,addAgent,install,step,call,original,route:()=>route,routeFor:path=>routes.get(path),dispose:()=>fiber.dispose()};
 }
-test('default policy preserves all existing tools and original schemas; generic names do not collide',async t=>{
+test('provider-default policy preserves all existing tools and original schemas; generic names do not collide',async t=>{
  const f=await fixture(t,{},['read','ask_user_question','browser_click','tool_search','tool_select','tool_close']);await f.install();
  for(const original of f.original)assert.deepEqual(f.ctx.tools.schemas(f.agent).find(s=>s.name===original.name),original);
  assert.deepEqual((await f.call('tool_search')).value,'tool_search');for(const name of CONTROL)assert.ok(f.ctx.tools.get(name,f.agent));
@@ -93,4 +93,34 @@ test('stock baseline hides extra schemas until a committed selection while keepi
  const selected=await f.call('tool_manager_select',{names:['knowledge_search']});assert.equal(selected.isError,false);
  f.agent.session.append('tool/result',{turn:0,step:0,message:{id:'stock-select',role:'tool',toolCallId:'stock-select',content:selected.content,source:{kind:'tool',name:'tool_manager_select'}},meta:selected.meta},{surfaceOp:'append'});
  await f.step();assert.ok(f.ctx.tools.get('knowledge_search',f.agent));assert.equal(f.ctx.tools.get('future_plugin_tool',f.agent),undefined);
+});
+test('compact browser gates task calls, preserves selected tools, and replaces catalog text in model history on close',async t=>{
+ const f=await fixture(t,{read:override('basic')},['read','browser_click','browser_type'],'discover',{compactBrowser:true});await f.install();
+ assert.ok(f.ctx.tools.get('browse_tools',f.agent));assert.equal(f.ctx.tools.get('tool_manager_search',f.agent),undefined);assert.equal(f.ctx.tools.get('browser_click',f.agent),undefined);
+ let id=0;function commit(result,name='browse_tools'){return f.agent.session.append('tool/result',{turn:0,step:0,message:{id:'browser-'+(++id),role:'tool',toolCallId:'browser-call-'+id,content:result.content,source:{kind:'tool',name},...(result.isError?{isError:true}:{})},meta:result.meta},{surfaceOp:'append'});}
+ const checkpoint=f.agent.session.append('user/message',{role:'user',id:'checkpoint',source:{kind:'user'},content:[{type:'text',text:'Checkpoint: browse a webpage'}]},{surfaceOp:'append'});
+ const found=await f.call('browse_tools',{action:'search',task:'browse page'});assert.equal(found.isError,false);const catalogEvent=commit(found);await f.step();
+ assert.equal((await f.call('read')).isError,true,'even pinned task tools must wait for the browser to close');
+ const selected=await f.call('browse_tools',{action:'add',names:['browser_click']});assert.equal(selected.isError,false);commit(selected);await f.step();assert.ok(f.ctx.tools.get('browser_click',f.agent));assert.equal((await f.call('browser_click')).isError,true);
+ const done=await f.call('browse_tools',{action:'close'});assert.match(done.value.status,/1 tools selected/);commit(done);await f.step();assert.equal((await f.call('browser_click')).isError,false);
+ const messages=f.agent.session.deriveMessages();assert.ok(messages.some(m=>m.content.some(b=>b.type==='text'&&b.text==='1 tools selected')));assert.ok(!f.agent.session.surface.nodes.includes(catalogEvent.seq));assert.ok(f.agent.session.surface.nodes.includes(checkpoint.seq));assert.equal(f.agent.session.eventAt(catalogEvent.seq).data.meta.toolManager.catalogPage,true,'original audit event must remain unchanged');
+ const queued=await f.call('browse_tools',{action:'close_tools',names:['browser_click']});commit(queued);await f.step();assert.ok(f.ctx.tools.get('browser_click',f.agent));
+ f.agent.session.append('compaction/end',{compactionId:'browser-close-ok',turn:0});await f.step();assert.equal(f.ctx.tools.get('browser_click',f.agent),undefined);
+});
+test('automatic retrieval offers five suggestions once, requires a choice, and select-none retires its notice',async t=>{
+ const f=await fixture(t,{},Array.from({length:8},(_,i)=>'browser_action_'+i),'discover',{compactBrowser:true,autoRetrieval:{enabled:true,topK:5,minScore:0,maxChars:3000,summaryChars:180,cooldownSeconds:0,includeAvailable:false,includeSkills:false,requireChoice:true}});await f.install();
+ const user={role:'user',id:'retrieve-user',source:{kind:'user'},content:[{type:'text',text:'Browse a page and click a button'}]};
+ const payload={agent:f.agent,messages:[user],turn:1,step:1,signal:new AbortController().signal};
+ const step=()=>f.ctx.waterfall('agent/pre-step',payload,()=>Promise.resolve({kind:'enter',messages:[user],startsRequestSeries:true}));
+ const result=await step();assert.equal(result.startsRequestSeries,true);assert.equal(result.messages.length,2);const notice=result.messages[1];assert.equal(notice.source.count,5);assert.ok(notice.content[0].text.length<=3000);
+ f.agent.session.append('user/message',notice,{surfaceOp:'append'});
+ const duplicate=await step();assert.equal(duplicate.messages.length,1,'committed notice must not be repeated for the same claimed user batch');
+ const none=await f.call('browse_tools',{action:'none'});assert.equal(none.value.status,'No tools selected');f.agent.session.append('tool/result',{turn:1,step:1,message:{id:'none-result',role:'tool',toolCallId:'none-call',content:none.content,source:{kind:'tool',name:'browse_tools'}},meta:none.meta},{surfaceOp:'append'});
+ await f.step();const messages=f.agent.session.deriveMessages();assert.ok(messages.some(m=>m.content.some(b=>b.type==='text'&&b.text==='No tools selected')));assert.ok(!messages.some(m=>m.content.some(b=>b.type==='text'&&b.text.startsWith('tool_retrieval:'))));
+});
+test('an unresolved browser steers the model back to a choice with bounded retries',async t=>{
+ const f=await fixture(t,{},['browser_click'],'discover',{compactBrowser:true});await f.install();const messages=[];f.agent.steer=message=>messages.push(message);
+ const opened=await f.call('browse_tools',{action:'search',task:'browser'});f.agent.session.append('tool/result',{turn:1,step:1,message:{id:'open-stop-test',role:'tool',toolCallId:'stop-open',content:opened.content,source:{kind:'tool',name:'browse_tools'}},meta:opened.meta},{surfaceOp:'append'});
+ await f.ctx.serial('agent/turn-stopping',{agent:f.agent,turn:1});await f.ctx.serial('agent/turn-stopping',{agent:f.agent,turn:1});assert.equal(messages.length,2);assert.match(messages[0].content[0].text,/choose none/);
+ await assert.rejects(f.ctx.serial('agent/turn-stopping',{agent:f.agent,turn:1}),/choice required/);
 });

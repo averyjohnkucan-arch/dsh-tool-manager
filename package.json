@@ -1,6 +1,6 @@
 {
   "name": "dsh-tool-manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "license": "MIT",
   "description": "Search, select and manage tool context through supported DSH hooks.",
@@ -52,7 +52,8 @@
       "platform": "web",
       "immediately": true,
       "inject": [
-        "@deepseek-ai/dsh-client-ui-settings"
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
   }
