@@ -3,7 +3,7 @@ import {defineTool} from '@deepseek-ai/dsh-tools';
 import {renderSkillContent} from '@deepseek-ai/dsh-skill';
 import {z} from 'zod';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
-import {homedir} from 'node:os';import {join} from 'node:path';import {createRequire} from 'node:module';
+import {homedir} from 'node:os';import {join} from 'node:path';import {createRequire} from 'node:module';import {fileURLToPath} from 'node:url';
 import {SemanticIndex} from './lib/semantic.js';
 import {Settings} from './lib/settings.js';import {provenance,rows} from './lib/catalog.js';import {search} from './lib/search.js';import {KEY,CONTROL,empty,fold,select,close} from './lib/state.js';
 export const inject=['tools','systemPrompt','sessionProjections','agents','webServer'];
@@ -12,7 +12,7 @@ export async function apply(ctx,config){
  const settings=new Settings(config.dataDir);await settings.init();const semantic=new SemanticIndex(settings.root);await semantic.init();ctx.effect(()=>()=>semantic.dispose());
  const require=createRequire(import.meta.url);let dshRoot;try{dshRoot=require.resolve('@deepseek-ai/dsh-tools');}catch{}
  const home=process.env.DSH_HOME||join(homedir(),'.dsh');
- const roots=[join(home,'profiles',process.env.DSH_PROFILE||'web','node_modules')];
+ const roots=[join(home,'profiles',process.env.DSH_PROFILE||'web','node_modules'),fileURLToPath(import.meta.url),...(process.argv[1]?[process.argv[1]]:[])];
  // Resolve the installed DSH tool package's node_modules parent; no core writes.
  if(dshRoot){const {dirname}=await import('node:path');roots.push(dirname(dirname(dirname(dirname(dshRoot)))));}
  const owners=await provenance(roots);const records=new Map();let disposed=false,changing=false;

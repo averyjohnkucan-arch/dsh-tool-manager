@@ -14,11 +14,11 @@ Selection receipts are normal tool-result presentation metadata. A pure session 
 
 ## Visibility
 
-Tools may be **Always available**, **Search and select**, or **Disabled**. Defaults keep shell/file tools and the skill loader available; discovery controls always remain available. Restrictions apply independently per agent, intersect with other policies, and never grant permissions another policy withheld. Explicit disabling also uses a monotonic execution guard.
+Tools may be **Always available**, **Search and select**, or **Disabled**. Defaults keep shell/file tools, ask_user_question and the skill loader available; discovery controls always remain available. Restrictions apply independently per agent, intersect with other policies, and never grant permissions another policy withheld. Explicit disabling also uses a monotonic execution guard.
 
 DSH exempts a scope's own registrations and reserved transports from its restriction API. Such tools are labelled **Scope-owned: schema cannot be hidden**; their owners must cooperate for schema removal. Permission and execution policy is preserved, and explicitly disabled tools are denied. Lazy tools only appear once their provider registers them. This plugin cannot enumerate hidden, unregistered backends.
 
-Tool ownership is not an authoritative field on DSH's public tool definitions. The plugin infers unique matches from installed package source literals, labels them as inferred, and provides explicit owner/group overrides. Unknown or ambiguous tools are labelled Unknown. Discovery uses the calling agent's currently permitted registry view; it does not bypass another plugin's restrictions.
+Tool ownership is not an authoritative field on DSH's public tool definitions. The plugin infers unique matches from installed package source literals, labels them as inferred, and provides explicit owner/group overrides. Unmatched tools are labelled Unattributed. Ambiguous built-in tools are grouped under DSH built-in tools, with their candidate providers shown. Built-in providers in pnpm’s virtual store are scanned as well as profile-installed plugins. Discovery uses the calling agent's currently permitted registry view; it does not bypass another plugin's restrictions.
 
 Catalog summaries and ordering are editable. These changes affect discovery presentation and search; they deliberately do not rewrite another provider's callable schema, parameter definitions, prompt sections, or tool names.
 
