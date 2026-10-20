@@ -31,6 +31,12 @@ Tool ownership is not an authoritative field on DSH's public tool definitions. T
 
 Catalog summaries and ordering are editable. These changes affect discovery presentation and search; they deliberately do not rewrite another provider's callable schema, parameter definitions, prompt sections, or tool names.
 
+## Skills and basic lookups
+
+Put personal skills in `$DSH_HOME/skills/<skill-name>/SKILL.md` (normally `~/.dsh/skills/`). DSH's filesystem skill provider discovers them. Tool manager searches model-invocable skill names and descriptions with BM25; it does not index the full skill bodies or require embeddings for skill search. Use descriptive YAML `name` and `description` fields. The stock `skill` tool loads full instructions on demand.
+
+To expose only basic lookups beyond stock, pin `web_search` and `knowledge_search` as Always available and leave the other extra tools on Search and select. Knowledge's administration tools stay in their plugin folder. Browser tools appear when a browser provider registers them; no browser provider is installed automatically. Prompt guidance encourages searching the actual installed catalog for useful tools and skills, without claiming an unlimited installed tool set.
+
 ## Optional description embeddings
 
 BM25 is built in and requires no model. The semantic index is a separate module, configured under **Tool-description embeddings and semantic search**. Supply an OpenAI-compatible API root (usually ending in `/v1`), model name, and optional key; enable semantic search, then **Save and build index**. Do not assume the sample local endpoint is running: it is only an editable default, and semantic search starts disabled.
