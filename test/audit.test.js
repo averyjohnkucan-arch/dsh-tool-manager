@@ -124,3 +124,18 @@ test('an unresolved browser steers the model back to a choice with bounded retri
  await f.ctx.serial('agent/turn-stopping',{agent:f.agent,turn:1});await f.ctx.serial('agent/turn-stopping',{agent:f.agent,turn:1});assert.equal(messages.length,2);assert.match(messages[0].content[0].text,/choose none/);
  await assert.rejects(f.ctx.serial('agent/turn-stopping',{agent:f.agent,turn:1}),/choice required/);
 });
+test('use-once selection keeps failed calls available and retires after committed success through public services',async t=>{
+ const f=await fixture(t,{},['read'],'discover',{compactBrowser:true});f.ctx.tools.register(defineTool({name:'browser_click',description:'Click fixture',parameters:{count:{type:'integer',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},execute:async()=> 'original task output'}));await f.install();
+ let id=0;const commit=(r,name='browse_tools')=>f.agent.session.append('tool/result',{turn:0,step:0,message:{id:'once-'+(++id),role:'tool',toolCallId:'once-'+id,content:r.content,source:{kind:'tool',name},...(r.isError?{isError:true}:{})},...(r.meta?{meta:r.meta}:{})},{surfaceOp:'append'});
+ const add=await f.call('browse_tools',{action:'add',names:['browser_click'],use_once:true});assert.equal(add.isError,false);assert.deepEqual(add.value.oneShot,['browser_click']);commit(add);await f.step();
+ commit(await f.call('browse_tools',{action:'close'}));await f.step();assert.ok(f.ctx.tools.get('browser_click',f.agent));
+ const bad=await f.call('browser_click',{unknown:'malformed'});assert.equal(bad.isError,true);commit(bad,'browser_click');await f.step();assert.ok(f.ctx.tools.get('browser_click',f.agent));
+ const ok=await f.call('browser_click',{count:1});assert.equal(ok.isError,false);assert.ok(f.ctx.tools.get('browser_click',f.agent),'execution alone does not mutate committed selection');const event=commit(ok,'browser_click');await f.step();assert.equal(f.ctx.tools.get('browser_click',f.agent),undefined);assert.deepEqual(f.agent.session.eventAt(event.seq).data.message.content,ok.content);
+ const again=await f.call('browse_tools',{action:'add',names:['browser_click'],use_once:false});assert.deepEqual(again.value.oneShot,[]);
+});
+test('saved use-once lifetime requires discover policy and supports an explicit persistent override',async t=>{
+ const f=await fixture(t,{browser_click:{...override('discover'),lifetime:'once'},read:override('basic')});await f.install();
+ assert.deepEqual((await f.call('tool_manager_select',{names:['browser_click']})).value.oneShot,['browser_click']);
+ assert.deepEqual((await f.call('tool_manager_select',{names:['browser_click'],use_once:false})).value.oneShot,[]);
+ assert.equal((await f.call('tool_manager_select',{names:['read'],use_once:true})).isError,true);
+});

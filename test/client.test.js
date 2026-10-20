@@ -17,6 +17,7 @@ test('folder and checkbox bulk edits span pages, preserve siblings and remain dr
  assert.equal(Object.keys(states[1].tools).length,60);assert.equal(states[1].tools.alpha_59.mode,'discover');assert.equal(states[1].tools.alpha_0.summary,'Keep this description');assert.equal(states[1].tools.alpha_60,undefined);assert.equal(settings.tools.alpha_0.mode,'inherit');assert.equal(requests.length,0);
  byLabel('Apply availability to folder Plugin A').props.onChange({target:{value:'disabled'}});
  assert.equal(states[1].tools.alpha_64.mode,'disabled');assert.equal(states[1].tools.beta,undefined);assert.equal(states[1].tools.tool_manager_search,undefined);
+ byLabel('Selection lifetime for alpha_0').props.onChange({target:{value:'once'}});assert.equal(states[1].tools.alpha_0.lifetime,'once');
  byLabel('Automatic tool retrieval').props.onChange({target:{checked:true}});byLabel('Top results (maximum)').props.onChange({target:{value:'3'}});byLabel('Use one tool browser').props.onChange({target:{checked:true}});byLabel('Default tool baseline').props.onChange({target:{value:'discover'}});
  const save=find(render(),n=>n.type==='button'&&n.children.includes('Save changes'));await save.props.onClick();
  assert.equal(requests.length,1);assert.equal(requests[0].action,'save');assert.equal(requests[0].settings.tools.alpha_64.mode,'disabled');assert.equal(requests[0].settings.autoRetrieval.enabled,true);assert.equal(requests[0].settings.autoRetrieval.topK,3);assert.equal(requests[0].settings.compactBrowser,true);assert.equal(requests[0].settings.defaultMode,'discover');

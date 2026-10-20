@@ -35,3 +35,7 @@ Real-service tests cover five-result automatic retrieval, committed-message dedu
 Surface replacements update model history through a public API, not the inference engine's KV cache. Native browser results are individually replaceable. Catalog payloads mixed into a PTC transport result are not individually pruned. Exempt agent-local schemas may remain visible, but compact mode guards their execution until selected. This constraint is surfaced to users rather than bypassed through core patches.
 
 The unresolved-browser turn-stop path is also tested: two bounded steering messages precede a clear error if the model keeps ignoring the choice requirement. Live owner settings were verified with All tools on demand, compact browser enabled, five-result automatic retrieval enabled, and only web_search/knowledge_search explicitly pinned. The running catalog detected 263 tools including 207 REA tools. Model instruction adherence has not been benchmarked against every supported model.
+
+## Selection lifetime (0.2.1)
+
+Persistent remains the default for old and new settings. Optional per-tool lifetime or per-selection use_once retires an on-demand tool only from committed native/PTC success events. Errors and replacement copies do not retire it. Replay restores the same state. Explicit closure still waits for successful compaction. Long instructions load through mapped/explicit skills, with no rewriting of provider schemas or task arguments/results. This does not control engine KV eviction.
