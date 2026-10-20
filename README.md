@@ -4,6 +4,8 @@ A standalone Cordis plugin for DeepSeek Harness 0.2.1-rc.2. No core patches and 
 
 Open **Settings → Tool manager**. The catalog uses compact tool rows in collapsible plugin folders and nested custom folders. Search and Save remain at the top while scrolling. Tool metadata, folder ordering, and embedding preferences stay collapsed until opened; built-in folders use readable labels with the full package name in the tooltip. Edit each tool's availability, summary, folder path, plugin attribution, order and associated DSH skill names; save the changes. Folder order is editable inside each expanded folder. Check a plugin or nested folder to select all descendants across every page, or check individual tools. Apply availability to the selection, or use a folder’s own availability menu. Folder actions include descendants hidden by the current search filter; “Select all matching tools” follows that filter. Discovery controls cannot be disabled. Bulk changes remain drafts until you click Save changes. Lower order values appear first. The catalog is paged at 50 tools per page and can be filtered by name, description or folder.
 
+A stale plugin connection token renews through DSH’s public browser-authentication service and retries once. No new account permissions or browser credentials are granted.
+
 Catalog requests read the global registry once and reuse previously inspected agent metadata. They do not probe restrictions, replay inactive session logs, or wait for package-source scans. Provenance refresh runs in the background; unchanged agent steps reuse their existing policy. Requests time out after 15 seconds and show a retry action instead of an endless loading message.
 
 ## Model workflow
@@ -15,6 +17,11 @@ Catalog requests read the global registry once and reuse previously inspected ag
 Selection receipts are normal tool-result presentation metadata. A pure session projection reconstructs selection from committed Native/PTC tool results and successful compaction events. Prompt text describes current windows and how to close them. Ordinary tool results and skill bodies already in history remain until DSH compacts that history; this plugin never rewrites or prunes it.
 
 ## Visibility
+
+Choose **Stock tools + search for extras** in the Baseline selector and save to retain the shipped standard tool set while making unconfigured plugin tools searchable on demand. This also covers future registered extras. Explicit per-tool choices take precedence, including an explicit Provider default override. The compatibility baseline remains Provider defaults until the user selects the stock baseline.
+
+`lib/policy.js` records the standard tool names verified against DSH 0.2.1-rc.2: shell (Bash or PowerShell), file read/image/write/edit/search, working directory, jobs, schedules, skills, goals, plan exit, subagents/workflows, user questions, todos, web search/fetch, and presentation. New DSH versions may change that set; the plugin does not classify arbitrary installed packages as stock just because their name looks official.
+
 
 Tools start at **Provider default**, preserving their provider’s original availability. This also applies to tools registered later. Opt in to **Always available**, **Search and select**, or **Disabled** per tool or folder; discovery controls always remain available. “Always available” removes only this manager’s discovery restriction, and cannot override another provider’s policy. Version 1 settings migrate to provider defaults for unconfigured tools while preserving explicit overrides. Restrictions apply independently per agent, intersect with other policies, and never grant permissions another policy withheld. Explicit disabling also uses a monotonic execution guard.
 
@@ -32,10 +39,17 @@ Only metadata (name, plugin, folder and summary) is embedded during index builds
 
 The index persists atomically and reuses unchanged descriptions. A changed endpoint/model or changed tool description invalidates relevant entries. BM25 and semantic rankings use reciprocal-rank fusion. Semantic errors or a missing/stale index produce a visible BM25 fallback. Index results are filtered against the requesting agent's allowed catalog before ranking; an index built for one scope cannot reveal another scope's tools.
 
+## Context and cache limits
+
+Search returns seven matches by default, not the entire catalog. Selection opens the chosen schemas; it does not execute their actions. Stock tools plus the three discovery controls remain available under the stock baseline. Existing provider prompt sections, skill summaries, and already committed search results are separate from tool-schema visibility.
+
+Public hooks do not let this plugin erase a committed search result immediately after selection, or guarantee that adding a schema only invalidates the tail of an inference engine’s KV cache. Model adapters serialize callable schemas on requests, and prefix reuse depends on their ordering and the inference backend. An unsuccessful tool call does not currently move or duplicate a schema at the front of history. Queued closure waits for successful compaction; malformed calls follow DSH’s normal error handling.
+
 ## Storage and modules
 
 `$DSH_HOME/dsh-tool-manager/` (default `~/.dsh/dsh-tool-manager/`) holds `settings.json` and `tool-embeddings.json`, written with owner-only permissions. The settings may contain the configured embedding API key. The tool context state itself comes from the existing DSH session log.
 
+- `lib/policy.js`: versioned stock-tool baseline.
 - `lib/catalog.js`: discovery metadata and best-effort provenance.
 - `lib/search.js`: BM25.
 - `lib/semantic.js`: embedding transport, persistent index, cosine ranking and fusion.

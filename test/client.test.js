@@ -32,3 +32,16 @@ test('a stalled catalog request times out with a working Retry button',async()=>
  function find(n){if(!n||typeof n!=='object')return;if(n.type==='button'&&n.children.includes('Retry loading tools'))return n;for(const c of n.children||[]){const found=Array.isArray(c)?c.map(find).find(Boolean):find(c);if(found)return found;}}
  const retry=find(failed);assert.ok(retry);stalled=false;await retry.props.onClick();assert.equal(states[0],data);assert.equal(states[5],'');
 });
+test('stale plugin capabilities renew once through the authenticated connection endpoint',async()=>{
+ let cursor=0,exported,Page;const effects=[],states=[null,null,'','',0,'','',false,[]],requests=[];const data={settings:defaults(),tools:[],agents:[],limits:[],index:{}};
+ const React={Fragment:'fragment',createElement:(type,props,...children)=>({type,props,children}),useState:()=>{const i=cursor++;return[states[i],v=>{states[i]=typeof v==='function'?v(states[i]):v;}];},useEffect:fn=>effects.push(fn)};
+ const win={__DSH_TOOL_MANAGER__:{path:'/plugins/dsh-tool-manager/action',token:'old'},__ModuleLoader__:{load:m=>exported=m.factory(()=>React)}};
+ vm.runInNewContext(await readFile(new URL('../client.js',import.meta.url),'utf8'),{AbortController,setTimeout,clearTimeout,window:win,fetch:async(path,options)=>{
+  requests.push({path,options});assert.equal(options.credentials,'same-origin');
+  if(path.endsWith('/connection'))return{ok:true,status:200,json:async()=>({path:'/plugins/dsh-tool-manager/action',token:'new'})};
+  if(options.headers.Authorization==='Bearer old')return{ok:false,status:401};
+  return{ok:true,status:200,json:async()=>data};
+ }});
+ exported.apply({slots:{inject:(_slot,fn)=>fn(),register:(_opts,p)=>Page=p}});Page();effects[0]();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(states[0],data);assert.equal(win.__DSH_TOOL_MANAGER__.token,'new');assert.equal(requests.length,3);assert.equal(requests[1].path,'/plugins/dsh-tool-manager/connection');assert.equal(states[5],'');
+});

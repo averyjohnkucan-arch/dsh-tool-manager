@@ -12,10 +12,10 @@ import {createScope} from '@deepseek-ai/dsh-scope';
 import * as plugin from '../index.js';import {defaults} from '../lib/settings.js';import {CONTROL} from '../lib/state.js';
 const def=name=>defineTool({name,description:`Fixture ${name}: browse a page or execute the original behavior`,parameters:{},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},execute:async()=>name});
 const override=mode=>({mode,owner:'',summary:'',group:'',skills:[]});
-async function fixture(t,tools={},names=['read','ask_user_question','browser_click']){
- const dir=await mkdtemp(join(tmpdir(),'tool-manager-audit-'));t.after(()=>rm(dir,{recursive:true,force:true}));await writeFile(join(dir,'settings.json'),JSON.stringify({...defaults(),tools}));
- const ctx=new Context();new SystemPrompt(ctx,{});new ToolRuntime(ctx);new SessionStore(ctx);new Projection(ctx);new Skills(ctx);const agents=[];const defs=new Map();let route;
- new(class extends Service{constructor(){super(ctx,'agents');}list(){return agents;}})();new(class extends Service{constructor(){super(ctx,'webServer');}register(r){route=r;return()=>{};}getOrigin(){return 'http://127.0.0.1:3099';}})();
+async function fixture(t,tools={},names=['read','ask_user_question','browser_click'],defaultMode='inherit'){
+ const dir=await mkdtemp(join(tmpdir(),'tool-manager-audit-'));t.after(()=>rm(dir,{recursive:true,force:true}));await writeFile(join(dir,'settings.json'),JSON.stringify({...defaults(),tools,defaultMode}));
+ const ctx=new Context();new SystemPrompt(ctx,{});new ToolRuntime(ctx);new SessionStore(ctx);new Projection(ctx);new Skills(ctx);const agents=[];const defs=new Map(),routes=new Map();let route;
+ new(class extends Service{constructor(){super(ctx,'agents');}list(){return agents;}})();new(class extends Service{constructor(){super(ctx,'webServer');}register(r){route=r;routes.set(r.path,r);return()=>routes.delete(r.path);}getOrigin(){return 'http://127.0.0.1:3099';}})();
  for(const name of names){const d=def(name);defs.set(name,d);ctx.tools.register(d);}
  const addAgent=id=>{const agent={session:ctx.sessions.create(id,{meta:{cwd:dir}})};const scope=createScope(ctx,agent);agent.ctx=scope.ctx;agents.push(agent);return {agent,scope};};
  const {agent,scope}=addAgent('one');const original=ctx.tools.schemas(agent);
@@ -23,7 +23,7 @@ async function fixture(t,tools={},names=['read','ask_user_question','browser_cli
  const step=async(a=agent)=>ctx.waterfall('agent/pre-step',{agent:a},()=>Promise.resolve({messages:[],kind:'continue',preserved:'fixture'}));
  const call=async(name,args={},a=agent)=>ctx.tools.execute({callId:'fixture-'+Math.random(),name,arguments:args,agent:a,signal:new AbortController().signal});
  t.after(async()=>{await fiber?.dispose();for(const a of agents)await a.ctx.fiber.dispose();await ctx.fiber.dispose();});
- return {ctx,agent,scope,defs,addAgent,install,step,call,original,route:()=>route,dispose:()=>fiber.dispose()};
+ return {ctx,agent,scope,defs,addAgent,install,step,call,original,route:()=>route,routeFor:path=>routes.get(path),dispose:()=>fiber.dispose()};
 }
 test('default policy preserves all existing tools and original schemas; generic names do not collide',async t=>{
  const f=await fixture(t,{},['read','ask_user_question','browser_click','tool_search','tool_select','tool_close']);await f.install();
@@ -75,4 +75,22 @@ test('catalog reads are mutation-free and unchanged agent steps do not rebuild t
  await f.step();await f.step();assert.equal(changes,0,'unchanged steps must reuse the existing scoped mask');
  assert.equal(f.ctx.tools.get('fixture_0',f.agent),undefined,'cached policy must still hide discovery tools');
  t.diagnostic(`10 catalog reads, 200 tools and 26 agents: ${elapsed.toFixed(1)} ms, zero registry mutations`);
+});
+test('capability renewal requires the existing DSH browser authentication and rejects cross-origin requests',async t=>{
+ const f=await fixture(t);await f.install();let authenticated=false,checks=0;
+ new(class extends Service{constructor(){super(f.ctx,'connection');}authorizeIndex(_req,res){checks++;if(authenticated)return true;res.writeHead(401);res.end('Unauthorized');return false;}})();
+ const route=f.routeFor('/plugins/dsh-tool-manager/connection');assert.ok(route);
+ async function request(method='GET',origin){let status=200,body='';await route.handler({method,headers:origin?{origin}:{}},{setHeader(){},writeHead(n){status=n;},end(s){body=s||'';}});return{status,body};}
+ assert.equal((await request()).status,401);assert.equal(checks,1);
+ authenticated=true;assert.equal((await request('POST')).status,403);assert.equal((await request('GET','https://example.org')).status,403);assert.equal(checks,1);
+ const accepted=await request('GET','http://127.0.0.1:3099');assert.equal(accepted.status,200);const capability=JSON.parse(accepted.body);assert.equal(capability.path,'/plugins/dsh-tool-manager/action');assert.match(capability.token,/^[0-9a-f]{64}$/);
+});
+test('stock baseline hides extra schemas until a committed selection while keeping stock tools callable',async t=>{
+ const f=await fixture(t,{},['read','skill','knowledge_search'],'stock');await f.install();
+ assert.ok(f.ctx.tools.get('read',f.agent));assert.ok(f.ctx.tools.get('skill',f.agent));assert.equal(f.ctx.tools.get('knowledge_search',f.agent),undefined);
+ const found=await f.call('tool_manager_search',{task:'knowledge search'});assert.ok(found.value.tools.some(t=>t.name==='knowledge_search'));assert.equal(f.ctx.tools.get('knowledge_search',f.agent),undefined);
+ f.ctx.tools.register(def('future_plugin_tool'));await f.step();assert.equal(f.ctx.tools.get('future_plugin_tool',f.agent),undefined);
+ const selected=await f.call('tool_manager_select',{names:['knowledge_search']});assert.equal(selected.isError,false);
+ f.agent.session.append('tool/result',{turn:0,step:0,message:{id:'stock-select',role:'tool',toolCallId:'stock-select',content:selected.content,source:{kind:'tool',name:'tool_manager_select'}},meta:selected.meta},{surfaceOp:'append'});
+ await f.step();assert.ok(f.ctx.tools.get('knowledge_search',f.agent));assert.equal(f.ctx.tools.get('future_plugin_tool',f.agent),undefined);
 });
