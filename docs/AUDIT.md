@@ -43,3 +43,7 @@ Persistent remains the default for old and new settings. Optional per-tool lifet
 ## Fast selection (0.3.0)
 
 One outer find call contains BM25 discovery and a bounded auxiliary model selection through public LlmRuntime.prepareCall. Exact committed request-header routing takes precedence over the agent/request fallback. The preparation callback chooses only an advertised off/none effort. Main conversation options are never mutated. Candidate lists live in presentation metadata only, not model-facing output. Only validated offered names can be committed; no task dispatch occurs inside selection. Automatic suggestions are suppressed in fast mode. Existing legacy mode remains available.
+
+## Automatic closure (0.3.1)
+
+All successful selections (find, add, legacy select) commit a browser resolve receipt. Search/browse in Fast mode cannot reopen the manual browser: they use combined selection, or return a ready receipt for an already-selected tool name/owner/folder. Selected-only descriptions clarify callable names without publishing other candidates. Closure and selection are still commit-driven. No inference or image-plugin code changes.
