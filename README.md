@@ -2,19 +2,31 @@
 
 A standalone Cordis plugin for DeepSeek Harness 0.2.1-rc.2. It uses public services and hooks without modifying Harness core or other plugins.
 
-## Fast model-initiated discovery (0.3.0)
+## Essentials and global discovery (0.4.0)
+
+Use **Settings → Tool manager → Baseline → Essentials + search for extras**. Fresh installs use this baseline; upgrades preserve saved settings and per-tool overrides. On Linux with the usual providers this exposes 15 permanent tools: `bash`, `read`, `write`, `edit`, `glob`, `grep`, `read_image`, `working_directory`, `ask_user_question`, `web_search`, `web_fetch`, `knowledge_search`, `knowledge_read_document`, `skill`, and `browse_tools`. Windows can supply `pwsh` instead of Bash. Missing providers are not installed automatically, and host-owned schemas can remain visible because of DSH scope rules.
+
+Fast discovery always searches every registered, permitted tool and every model-invocable skill, including already-visible capabilities. Legacy automatic-suggestion flags do not restrict an explicit search. Skill discovery waits up to 15 seconds and reports an incomplete scan instead of silently treating it as zero matches. Search ranks names and descriptions, not full skill bodies.
+
+The model sees one call and a receipt such as **Model chose office_tools, excel-guide**. The internal selector receives a bounded candidate list with reasoning off. Only selected tool schemas and selected skill bodies reach the parent model; candidates remain in audit metadata. Selected tools persist across turns until explicitly retired. Fast-mode schemas offer search/selection and retirement only, with no folder browser. Manual mode remains available as a compatibility option.
+
+A fresh model sees the small essentials set and instructions to search by task when it needs an extra capability or specialist guidance. It does not need to know skill names. Choosing a tool plus a skill also activates the skill loader; choosing the loader itself does not load all skill instructions.
+
+Through public `agent/pre-step` hooks, Tool Manager replaces full skill-catalog text with a short discovery notice. It preserves the stock catalog identity, complete registry, selected skill bodies, and audit events. Existing full catalogs are compacted through public durable session-surface replacement. The agent-created hook installs the window after catalog providers, covering either startup order without editing providers or the harness.
+
+## Fast model-initiated discovery
 
 Enable **Settings → Tool manager → Preferences → Fast tool selection**. New installations enable it by default; existing saved configurations preserve their previous mode until enabled. Automatic retrieval never runs in this mode, even if its legacy switch was saved as enabled. A persistent prompt asks the model to search before technical tasks; casual conversation needs no discovery call.
 
 `browse_tools(action="find", task="brief goal", keywords=["selective", "terms"])` performs two stages inside one visible tool call: local BM25 search, then a short auxiliary selection request through DSH's public LLM service. It uses the conversation's current provider/model with an advertised `off` or `none` reasoning effort, a 512-token cap and a 45-second timeout. Main answer reasoning is unchanged. This is a second model request, not a zero-cost selection, and its latency/cache impact depends on the provider.
 
-The selector receives bounded candidate names and descriptions, never the parent conversation or executable task schemas. It can select exact offered tool/skill names or none. The main conversation receives only the selection receipt, chosen names and explicitly loaded skill guidance; candidate results never enter its context. Both search and selection stages are stored in the result's `toolManager.selectionTrace` presentation metadata for trajectory/audit inspection. No fake agent steps are inserted. A successful committed receipt opens the chosen tools and closes the browser automatically; a separate close call is unnecessary. Selected names identify callable tools, not folders. Fast-mode search/browse actions also use the combined flow; browsing an already-selected tool returns a ready-to-call receipt without reopening a browser. Persistent tools still close with `action="close_tools"` at successful compaction.
+The selector receives bounded candidate names and descriptions, never the parent conversation or executable task schemas. It can select exact offered tool/skill names or none. The main conversation receives only the selection receipt, chosen names and explicitly loaded skill guidance; candidate results never enter its context. Both search and selection stages are stored in the result's `toolManager.selectionTrace` presentation metadata for trajectory/audit inspection. No fake agent steps are inserted. A successful committed receipt opens the chosen tools and closes the browser automatically; a separate close call is unnecessary. Selected names identify callable tools, not folders. Fast-mode search also uses the combined flow. Legacy calls referring to an already-selected tool return a ready-to-call receipt without reopening a browser. Persistent tools still close with `action="close_tools"` at successful compaction.
 
 If the model does not advertise reasoning off, fast selection refuses instead of silently reasoning; manual `search`/`add`/`close` remains available. Invalid responses, invented names, truncation, provider errors, unexpected reasoning and cancellation never activate tools. No core or other plugin files are changed.
 
 ## Compact tool browser
 
-New installations default to **All tools on demand** and **Use one tool browser**. Existing saved baselines and explicit tool settings are preserved. Pin essential tools as Always available; all other unconfigured tools require discovery, including tools registered later. Older Provider defaults and Stock tools baselines remain selectable.
+New installations default to **Essentials + search for extras** and **Use one tool browser**. Existing saved baselines and explicit tool settings are preserved. Pin essential tools as Always available; all other unconfigured tools require discovery, including tools registered later. Older Provider defaults and Stock tools baselines remain selectable.
 
 The model uses one controller:
 
@@ -24,7 +36,7 @@ The model uses one controller:
 - `action="close"` closes the browser. `action="none"` closes it without adding tools. Task tools are blocked while the compact browser remains open. If the model attempts to finish before deciding, the public turn-stopping hook steers it back at most twice, then reports an explicit choice-required error instead of looping indefinitely.
 - `action="close_tools", names=[...]` acknowledges queued closure. Selected tools remain available until a successful compaction. Failed compaction preserves them; reselecting cancels queued closure.
 
-After automatic or explicit browser closure, the next pre-step replaces only this plugin's catalog payloads on the model-facing session surface with a receipt such as `No tools selected` or `3 tools selected`. It uses public, durable single-node surface replacements, retaining the original transcript and audit events. Other plugins' messages, user text, task output and skill bodies are not rewritten. This is not a literal session rollback or a direct command to prune an inference engine's KV cache. Schema changes and replacements can invalidate the prefix from their insertion positions. Catalog payloads inside mixed PTC transport results cannot be individually rewritten; the direct Native browser path is covered by the replacement tests.
+After automatic or explicit browser closure, the next pre-step replaces only this plugin's catalog payloads on the model-facing session surface with a receipt such as `No tools selected` or `3 tools selected`. It uses public, durable single-node surface replacements, retaining the original transcript and audit events. User text, task output and selected skill bodies are not rewritten. Full skill-catalog summaries are separately bounded as described above. This is not a literal session rollback or a direct command to prune an inference engine's KV cache. Schema changes and replacements can invalidate the prefix from their insertion positions. Catalog payloads inside mixed PTC transport results cannot be individually rewritten; the direct Native browser path is covered by the replacement tests.
 
 The three older `tool_manager_search`, `tool_manager_select`, and `tool_manager_close` controls remain available in compatibility mode. Compact mode hides them and uses `browse_tools` instead. Only successful committed results update selection and browser state; malformed or failed calls do not grant tools or close the browser.
 
@@ -46,7 +58,7 @@ BM25 needs no model. Optional tool-description embeddings use an explicitly conf
 
 DSH restrictions intersect with upstream policies. They cannot grant permissions. Agent-own registrations and reserved transports are exempt from schema filtering; the UI labels that limit, and compact-mode execution guards still require selection. A provider must cooperate to hide an exempt schema. Unregistered lazy backends cannot be enumerated.
 
-Ownership is inferred from installed package declarations or MCP name prefixes, with manual overrides. It is not authoritative registry ownership. Existing provider prompt sections and skill summaries remain their owners' responsibility.
+Ownership is inferred from installed package declarations or MCP name prefixes, with manual overrides. It is not authoritative registry ownership. Provider prompt sections remain their owners' responsibility; full stock skill-catalog text is bounded through the public pre-step hook.
 
 Catalog reads do not probe restrictions or wait for source scans. Scoped capability probes are batched, unchanged policy masks are reused, and provenance refresh runs in the background. Requests time out after 15 seconds with Retry. Stale plugin capabilities renew through DSH's authenticated browser connection and retry once.
 
