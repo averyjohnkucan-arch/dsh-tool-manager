@@ -8,3 +8,9 @@ test('stock baseline keeps standard tools and defers present and future plugin t
  for(const name of ['extra','future_extra'])assert.equal(result.find(r=>r.name===name).mode,'discover');
  assert.equal(result.find(r=>r.name==='pinned_extra').mode,'basic');assert.equal(result.find(r=>r.name==='tool_manager_search').mode,'basic');
 });
+
+test('custom display summaries do not erase the registered capability from search',async()=>{
+ const {search}=await import('../lib/search.js');const cfg=defaults();cfg.tools.video_tools={summary:'Default LTX; explicit HQ is slower'};
+ const catalog=rows([{name:'video_tools',description:'Generate or create a video from a text prompt. Text-to-video with generated audio.'}],cfg,new Map(),new Set(['video_tools']));
+ assert.equal(catalog[0].summary,'Default LTX; explicit HQ is slower');assert.equal(search(catalog,'create')[0]?.name,'video_tools');
+});

@@ -21,3 +21,14 @@ test('PTC browser decisions replay and replacement copies never reopen the brows
  let state=fold(empty(),event('open',1));state=fold(state,event('add',2,['browser_a']));state=fold(state,event('close',3));assert.equal(state.browser.open,false);assert.equal(state.browser.status,'1 tools selected');
  assert.equal(fold(state,{...event('open',4),surfaceOp:{op:'replace',startSeq:1,endSeq:1}}),state);
 });
+
+test('fast discovery retains matching executable tools when a large skill library dominates ranking',async()=>{
+ const {findCandidates}=await import('../lib/retrieval.js');
+ const tools=[{name:'video_tools',summary:'Generate AI video from a text prompt using local LTX. Text-to-video creation with audio.',group:'Media',owner:'dsh-video-tools',mode:'discover',filterable:true}];
+ const skills=Array.from({length:100},(_,i)=>({name:'remote-video-'+i,description:'Generate video animation from text-to-video prompts, render an image-to-video animation with a remote API.',provider:'skill-library'}));
+ const options={...retrievalDefaults(),topK:5,includeAvailable:true,includeSkills:true,minScore:0};
+ const found=findCandidates(tools,skills,'Generate a short video of a chicken walking around text-to-video image-to-video code animation video generate animation render',empty(),options);
+ assert.equal(found.length,5);assert.ok(found.some(r=>r.kind==='tool'&&r.name==='video_tools'));assert.ok(found.some(r=>r.kind==='skill'));
+ assert.ok(findCandidates(tools,skills,'video',empty(),{...options,includeSkills:false}).every(r=>r.kind==='tool'));
+ assert.ok(!findCandidates([{...tools[0],mode:'disabled'}],skills,'video',empty(),options).some(r=>r.name==='video_tools'));
+});
