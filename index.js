@@ -1,4 +1,4 @@
-import {canonicalName,candidatePage,findOptions} from './lib/candidates.js';
+import {canonicalName,candidatePage,findOptions,findKey} from './lib/candidates.js';
 import {guideTool,explainInvalidBash,toolInputs} from './lib/tool-guidance.js';
 import {chooseTools} from './lib/selector.js';
 import {discoverSkills,choiceStatus} from './lib/discovery.js';
@@ -36,7 +36,23 @@ export async function apply(ctx,config){
  const st=state(agent);const deny=r.catalog.filter(t=>t.filterable&&t.name!=='browse_tools'&&((settings.value.compactBrowser&&CONTROL.includes(t.name))||(!CONTROL.includes(t.name)&&(t.mode==='disabled'||(t.mode==='discover'&&!st.selected.includes(t.name)))))).map(t=>t.name);
  if(deny.length)r.mask=agent.ctx.tools.restrict({deny});r.selectionKey=selectionKey;r.policyRevision=policyRevision;return r.catalog;
  }finally{changing=false;}}
- ctx.on('tools/change',()=>{if(changing||disposed)return;for(const r of records.values())r.dirty=true;});
+ ctx.on('tools/change',()=>{if(changing||disposed)return;for(const r of records.values()){r.dirty=true;r.lastFind=null;}});
+ // DSH assembles schemas BEFORE agent/pre-step. Apply committed selections
+ // on the public append feed so the immediately following request sees them.
+ ctx.on('session/event',(session,event)=>{
+  for(const [agent,r] of records){
+   if(agent.session!==session)continue;
+   if(event.type==='turn/start'){r.lastFind=null;continue;}
+   if(!['tool/result','tool/ptc-dispatch','compaction/end'].includes(event.type))continue;
+   inspect(agent);
+   if(event.surfaceOp?.op==='replace')continue;
+   const meta=event.data.meta?.toolManager;
+   const search=meta?.selectionTrace?.stages?.find(s=>s.stage==='search');
+   if(meta?.owner===KEY&&search?.task&&!event.data.message?.isError&&!event.data.isError&&meta.browser?.names?.length){
+    r.lastFind={key:findKey(search.task,search.keywords),names:[...meta.browser.names],policyRevision};
+   }
+  }
+ });
  function refreshAll(){for(const a of ctx.agents.list())inspect(a);}
  ctx.effect(()=>()=>{disposed=true;for(const r of records.values())r.mask?.();records.clear();});
  ctx.on('agent/request',async({agent},next)=>{const config=await next();record(agent).route={provider:config.provider,model:config.model};return config;});
@@ -91,6 +107,11 @@ export async function apply(ctx,config){
    if(!settings.value.fastSelection)throw Error('Enable Fast tool selection in settings, or use action=search for manual selection.');
    const task=(args.task||'').trim(),keywords=args.keywords||[];if((!task&&!names.length)||task.length>2000||keywords.length>6||keywords.some(k=>typeof k!=='string'||k.length>80))throw Error('Describe the task (up to 2,000 characters) and at most six short selective keywords.');
    const catalog=inspect(agent),st=state(agent),definitions=record(agent).definitions;
+   const previous=record(agent).lastFind;
+   if(!names.length&&previous?.key===findKey(task,keywords)&&previous.policyRevision===policyRevision&&previous.names.every(n=>st.selected.includes(n)&&catalog.some(t=>t.name===n&&t.mode!=='disabled'))){
+    const available=ready(previous.names),menus=available.flatMap(t=>t.menuCall?[t.menuCall]:[]);
+    return{receipt:st,browser:{action:'resolve',names:previous.names},status:'Discovery is complete. These tools are already selected and callable.',selected:previous.names,ready:available,...(menus.length===1?{nextCall:menus[0]}:{}),next:'Do not repeat this search. Call nextCall directly when present, or use the selected tool schema to perform the requested action. The full schemas are already available; no additional discovery is needed.',skills:[]};
+   }
    const exact=catalog.filter(t=>t.mode!=='disabled'&&!CONTROL.includes(t.name)&&canonicalName(t.name)===canonicalName(task));
    let choice;
    if(names.length||exact.length===1){

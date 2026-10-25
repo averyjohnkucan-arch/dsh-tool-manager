@@ -189,3 +189,20 @@ test('invalid Bash calls get corrective guidance without executing or synthesizi
  }
  const ok=await f.call('bash',{description:'Show current directory',command:'pwd'});assert.equal(ok.isError,false);assert.equal(executions,1);assert.equal(ok.value,'pwd');
 });
+
+test('committed selection changes the immediate assembly before pre-step and repeated find skips the selector',async t=>{
+ const f=await fixture(t,{},['browser_click'],'discover',{compactBrowser:true,fastSelection:true});let calls=0;
+ new(class extends Service{constructor(){super(f.ctx,'llm');}async prepareCall(){calls++;return{config:{reasoningEffort:'off'},async *stream(){yield{type:'block-end',index:0,block:{type:'tool-call',name:'select_tools',arguments:'{"names":["browser_click"],"skills":[]}'}};yield{type:'finish',reason:{kind:'tool-calls'}};}};}})();
+ await f.install();await f.ctx.waterfall('agent/request',{agent:f.agent},()=>Promise.resolve({provider:'fixture',model:'fixture'}));
+ const args={action:'find',task:'click a browser page',keywords:['browser']};
+ const first=await f.call('browse_tools',args);assert.equal(first.isError,false,JSON.stringify(first));
+ assert.equal((await f.ctx.systemPrompt.assemble({scope:f.agent})).tools.some(t=>t.name==='browser_click'),false,'uncommitted results cannot grant a schema');
+ f.agent.session.append('tool/result',{turn:1,step:1,message:{id:'immediate-find',role:'tool',toolCallId:'immediate-find',content:first.content,source:{kind:'tool',callId:'immediate-find'}},meta:first.meta},{surfaceOp:'append'});
+ const next=await f.ctx.systemPrompt.assemble({scope:f.agent});assert.ok(next.tools.some(t=>t.name==='browser_click'),'real DSH assembles before pre-step');
+ const repeated=await f.call('browse_tools',args);assert.equal(repeated.isError,false);assert.deepEqual(repeated.value.selected,['browser_click']);assert.match(repeated.value.next,/Do not repeat/);assert.equal(calls,1);
+ f.agent.session.append('turn/start',{turn:2});await f.call('browse_tools',args);assert.equal(calls,2,'a new user turn can reevaluate the query');
+ const closing=await f.call('browse_tools',{action:'close_tools',names:['browser_click']});
+ f.agent.session.append('tool/result',{turn:2,step:2,message:{id:'immediate-close',role:'tool',toolCallId:'immediate-close',content:closing.content,source:{kind:'tool'}},meta:closing.meta},{surfaceOp:'append'});
+ f.agent.session.append('compaction/end',{compactionId:'immediate-compaction',turn:2});
+ assert.ok(!(await f.ctx.systemPrompt.assemble({scope:f.agent})).tools.some(t=>t.name==='browser_click'),'successful compaction removes a closed schema before the next request');
+});
