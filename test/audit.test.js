@@ -170,3 +170,22 @@ test('global fast search scans all skills regardless of suggestion settings, com
  const other=f.addAgent('created-after-providers');f.ctx.emit('agent/created',{agent:other.agent});
  const d=await f.step(other.agent);assert.ok(d.messages.at(-1).content[0].text.length<600);assert.equal((await f.ctx.skills.list({scope:other.agent})).length,2);
 });
+
+test('exact find names load schemas directly, advertise their menu and preserve provider restrictions',async t=>{
+ const f=await fixture(t,{},['read'],'essential',{compactBrowser:true,fastSelection:true});
+ f.ctx.tools.register(defineTool({name:'generate_video',description:'Full-motion video',parameters:{action:{type:'string',enum:['menu','generate'],default:'menu'},first_frame_path:{type:'string'}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},execute:async()=>'menu'}));
+ await f.install();
+ for(const args of [{action:'find',task:'full schema for video',names:['generate_video']},{action:'find',task:'generate video'},{action:'find',names:['generate_video']}]){
+  const result=await f.call('browse_tools',args);assert.equal(result.isError,false,JSON.stringify(result));assert.deepEqual(result.value.selected,['generate_video']);assert.deepEqual(result.value.ready[0].menuCall,{name:'generate_video',arguments:{action:'menu'}});assert.equal(result.meta.toolManager.selectionTrace.stages.length,1,'no LLM or skill catalog request');assert.equal(f.ctx.tools.get('generate_video',f.agent),undefined,'selection still requires commit');
+ }
+ const restricted=f.addAgent('restricted');restricted.agent.ctx.tools.restrict({deny:['generate_video']});await f.step(restricted.agent);assert.equal((await f.call('browse_tools',{action:'find',names:['generate_video']},restricted.agent)).isError,true);
+ assert.equal((await f.call('browse_tools',{action:'find',names:['invented']})).isError,true);
+});
+test('invalid Bash calls get corrective guidance without executing or synthesizing a command',async t=>{
+ const f=await fixture(t);let executions=0;
+ f.ctx.tools.register(defineTool({name:'bash',description:'Bash fixture',parameters:{description:{type:'string',required:true},command:{type:'string',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},execute:async args=>{executions++;return args.command;}}));await f.install();
+ for(const args of [{description:'Check a tool menu'},{command:'pwd'}]){
+  const bad=await f.call('bash',args);assert.equal(bad.isError,true);assert.match(JSON.stringify(bad.content),/BOTH description and command/);assert.equal(executions,0);
+ }
+ const ok=await f.call('bash',{description:'Show current directory',command:'pwd'});assert.equal(ok.isError,false);assert.equal(executions,1);assert.equal(ok.value,'pwd');
+});

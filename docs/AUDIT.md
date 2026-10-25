@@ -47,3 +47,11 @@ One outer find call contains BM25 discovery and a bounded auxiliary model select
 ## Automatic closure (0.3.1)
 
 All successful selections (find, add, legacy select) commit a browser resolve receipt. Search/browse in Fast mode cannot reopen the manual browser: they use combined selection, or return a ready receipt for an already-selected tool name/owner/folder. Selected-only descriptions clarify callable names without publishing other candidates. Closure and selection are still commit-driven. No inference or image-plugin code changes.
+
+## Capability discovery and queue tolerance (0.4.3)
+
+The October 24 regression set contains 65 passing tests. It covers late description/input matches, singular/plural matching, tool ranking independent of skill-library size, bounded candidate pages, endpoint-image video discovery, direct exact-name loading, authoritative provider restrictions, menu hints from actual schemas, selector repair/limits, cancellation, and invalid Bash calls that execute nothing.
+
+The live Huihui Qwen test queried for video generation between first and last frame images. The internal shortlist included MiniMax H3, Solar and LTX; the selector chose only `generate_video` with no skills. The auxiliary request used 2,057 input tokens and 42 output tokens. The outer discovery call completed successfully after 49.9 seconds while sharing the GPU queue, exceeding the old 45-second wall-clock cutoff. This validates that queue time no longer consumes the output deadline; it does not imply that model loading or GPU contention is instantaneous.
+
+Changes are confined to Tool Manager and public Cordis hooks. The DSH core, model scheduler, inference engines and media plugins are unchanged. Native Bash validation remains authoritative; only model-facing descriptions and invalid-argument guidance are augmented. No command is synthesized from a description. Extended internal search text is omitted from model-visible catalog results and selection receipts.
