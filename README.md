@@ -79,3 +79,5 @@ dsh plugin --profile web add /absolute/path/to/dsh-tool-manager --config.ignore-
 ```
 
 Run `node --test test/*.test.js`, `node --check index.js`, and `node --check client.js` inside the plugin. Tests exercise real DSH registry, guards, restrictions, session projections and surface replacements. Host changes need a coordinated plugin reload or Harness restart. The UI uses DSH's public settings/conversation slots and theme tokens.
+
+See [COMPATIBILITY.md](COMPATIBILITY.md) for supported DSH versions and upgrade checks.
