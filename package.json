@@ -1,6 +1,6 @@
 {
   "name": "dsh-tool-manager",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "type": "module",
   "license": "MIT",
   "description": "Search, select and manage tool context through supported DSH hooks.",
@@ -23,13 +23,14 @@
   ],
   "scripts": {
     "test": "node --test test/*.test.js",
-    "check": "node --check index.js && node --check client.js"
+    "check": "node --check index.js && node --check client.js",
+    "check:dsh": "node scripts/check-dsh-compatibility.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.5",
     "@deepseek-ai/schemastery": "3.18.5",
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-skill": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-skill": ">=0.2.1-rc.2 <0.3.0-0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -56,5 +57,8 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0-0"
   }
 }
