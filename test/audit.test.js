@@ -185,7 +185,7 @@ test('invalid Bash calls get corrective guidance without executing or synthesizi
  const f=await fixture(t);let executions=0;
  f.ctx.tools.register(defineTool({name:'bash',description:'Bash fixture',parameters:{description:{type:'string',required:true},command:{type:'string',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},execute:async args=>{executions++;return args.command;}}));await f.install();
  for(const args of [{description:'Check a tool menu'},{command:'pwd'}]){
-  const bad=await f.call('bash',args);assert.equal(bad.isError,true);assert.match(JSON.stringify(bad.content),/BOTH description and command/);assert.equal(executions,0);
+  const bad=await f.call('bash',args);assert.equal(bad.isError,true);assert.match(JSON.stringify(bad.content),/both required fields: description .* and command/);assert.equal(executions,0);
  }
  const ok=await f.call('bash',{description:'Show current directory',command:'pwd'});assert.equal(ok.isError,false);assert.equal(executions,1);assert.equal(ok.value,'pwd');
 });

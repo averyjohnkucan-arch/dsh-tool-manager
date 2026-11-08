@@ -1,4 +1,5 @@
 import {canonicalName,candidatePage,findOptions,findKey} from './lib/candidates.js';
+import {installArgumentRepair} from './lib/argument-repair.js';
 import {guideTool,explainInvalidBash,toolInputs} from './lib/tool-guidance.js';
 import {chooseTools} from './lib/selector.js';
 import {discoverSkills,choiceStatus} from './lib/discovery.js';
@@ -16,7 +17,8 @@ import {Settings} from './lib/settings.js';import {provenance,rows} from './lib/
 export const inject=['tools','systemPrompt','sessionProjections','agents','webServer'];
 export const Config=Schema.object({dataDir:Schema.string().default('')});
 export async function apply(ctx,config){
- // Model-facing guidance only; native validation and execution stay authoritative.
+ installArgumentRepair(ctx);
+ // Brief tool-local guidance; native validation and execution stay authoritative.
  ctx.on('system-prompt/assemble',async(_assembly,_context,next)=>{
   const assembly=await next();return {...assembly,tools:assembly.tools.map(guideTool)};
  });
