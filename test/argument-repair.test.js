@@ -22,7 +22,7 @@ async function* chunks(blocks,{delta=false,kind='tool-calls',replay=false}={}){
  yield {type:'finish',reason:{kind},...(replay?{replayState:{response:{original:true}}}:{})};
 }
 async function fixture(t,original,response,options={}){
- const ctx=new Context(),llm=new LlmRuntime(ctx);new SystemPrompt(ctx,{});new ToolRuntime(ctx);
+ const ctx=new Context(),llm=new LlmRuntime(options.isolated?ctx.isolate('llm'):ctx);new SystemPrompt(ctx,{});new ToolRuntime(ctx);
  t.after(()=>ctx.fiber.dispose());
  const seen=[];let executions=0;
  ctx.tools.register(defineTool({name:'bash',description:schema.description,parameters:{description:{type:'string',required:true},command:{type:'string',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},execute:async()=>{executions++;return 'done';}}));
@@ -33,13 +33,14 @@ async function fixture(t,original,response,options={}){
    seen.push(request);
    if(seen.length===1){yield* chunks(original,options);return;}
    if(options.repairError)throw Error('Provider unavailable');
+   if(options.repairText!==undefined){yield{type:'text-delta',index:0,text:options.repairText};yield{type:'finish',reason:{kind:'stop'}};return;}
    if(options.abort){options.abort.abort();request.signal?.throwIfAborted();}
    yield* chunks(response,{kind:options.repairKind||'tool-calls'});
   }
  })());
- installArgumentRepair(ctx);
+ installArgumentRepair(options.isolated?ctx.isolate('llm'):ctx);
  const messages=[createMessage({role:'system',source:{kind:'system-prompt'},content:[{type:'text',text:'Complete original system prompt.'}]}),createMessage({role:'user',source:{kind:'user'},content:[{type:'text',text:'Original user request.'}]})];
- const request=markAgentLoopRequest({provider:'fixture',model:'same-model',reasoningEffort:'high',temperature:0.4,maxTokens:4096,messages,tools:[schema],sessionId:'real-session',signal:options.abort?.signal||new AbortController().signal});
+ const request=(options.unbranded?value=>value:markAgentLoopRequest)({provider:'fixture',model:'same-model',reasoningEffort:'high',temperature:0.4,maxTokens:4096,messages,tools:[schema],sessionId:'real-session',signal:options.abort?.signal||new AbortController().signal});
  const output=[],assembled=new BlockAssembler();
  const run=async()=>{for await(const chunk of llm.stream(request)){output.push(chunk);assembled.push(chunk);}return assembled.blocks();};
  return {ctx,llm,seen,messages,request,output,assembled,run,get executions(){return executions;}};
@@ -83,4 +84,27 @@ test('cancellation during repair never emits a callable tool',async t=>{
 });
 test('truncated original output is never repaired',async t=>{
  const f=await fixture(t,[block({command:'pwd'})],[],{kind:'max-tokens'});const blocks=await f.run();assert.equal(f.seen.length,1);assert.equal(blocks.some(b=>b.type==='tool-call'),false);
+});
+
+test('session requests survive a lost process-local brand and private repair preserves tool history',async t=>{
+ const f=await fixture(t,[block({command:'pwd'})],[block({description:'Show directory'})],{unbranded:true});
+ const history={fixture:'original tool declaration history'};f.request.toolHistory=history;
+ const blocks=await f.run();assert.equal(f.seen.length,2);assert.equal(JSON.parse(blocks[1].arguments).description,'Show directory');
+ assert.deepEqual(f.seen[1].toolHistory,history);assert.equal(f.seen[1].sessionId,undefined);
+});
+
+test('repair observes an isolated LLM service and continues through that exact service',async t=>{
+ const f=await fixture(t,[block({description:'Show directory'})],[block({command:'pwd'})],{isolated:true});
+ const blocks=await f.run();assert.equal(f.seen.length,2);assert.equal(JSON.parse(blocks[1].arguments).command,'pwd');
+});
+
+for(const [missing,reply] of [['description','Show current directory'],['description','{"description":"Show current directory"}'],['command','{"command":"pwd"}']])test(`private completion accepts just the missing value: ${missing} / ${reply}`,async t=>{
+ const original=missing==='description'?{command:'pwd'}:{description:'Show current directory'};
+ const f=await fixture(t,[block(original)],[],{repairText:reply});const blocks=await f.run();
+ assert.deepEqual(JSON.parse(blocks[1].arguments),{command:'pwd',description:'Show current directory'});assert.equal(f.seen.length,2);
+ assert.equal(JSON.stringify(blocks).includes('What was'),false);
+});
+test('a prose answer cannot become an executable command',async t=>{
+ const f=await fixture(t,[block({description:'Show directory'})],[],{repairText:'I would run pwd here.'});
+ const blocks=await f.run();assert.deepEqual(JSON.parse(blocks[1].arguments),{description:'Show directory'});assert.equal(f.executions,0);
 });
