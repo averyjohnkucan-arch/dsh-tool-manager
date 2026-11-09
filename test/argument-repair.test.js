@@ -18,7 +18,7 @@ async function* chunks(blocks,{delta=false,kind='tool-calls',replay=false}={}){
    yield {type:'tool-call-delta',index,id:value.id,argumentsDelta:value.arguments.slice(5)};
   }else yield {type:'block-end',index,block:value};
  }
- yield {type:'usage',usage:{inputTokens:10,outputTokens:5}};
+ yield {type:'usage',usage:{inputTokens:10,outputTokens:5,totalTokens:105,cacheReadTokens:90}};
  yield {type:'finish',reason:{kind},...(replay?{replayState:{response:{original:true}}}:{})};
 }
 async function fixture(t,original,response,options={}){
@@ -38,12 +38,12 @@ async function fixture(t,original,response,options={}){
    yield* chunks(response,{kind:options.repairKind||'tool-calls'});
   }
  })());
- installArgumentRepair(options.isolated?ctx.isolate('llm'):ctx);
+ const repair=installArgumentRepair(options.isolated?ctx.isolate('llm'):ctx);
  const messages=[createMessage({role:'system',source:{kind:'system-prompt'},content:[{type:'text',text:'Complete original system prompt.'}]}),createMessage({role:'user',source:{kind:'user'},content:[{type:'text',text:'Original user request.'}]})];
  const request=(options.unbranded?value=>value:markAgentLoopRequest)({provider:'fixture',model:'same-model',reasoningEffort:'high',temperature:0.4,maxTokens:4096,messages,tools:[schema],sessionId:'real-session',signal:options.abort?.signal||new AbortController().signal});
  const output=[],assembled=new BlockAssembler();
  const run=async()=>{for await(const chunk of llm.stream(request)){output.push(chunk);assembled.push(chunk);}return assembled.blocks();};
- return {ctx,llm,seen,messages,request,output,assembled,run,get executions(){return executions;}};
+ return {ctx,llm,seen,messages,request,output,assembled,repair,run,get executions(){return executions;}};
 }
 
 for(const missing of ['description','command'])test(`privately fills missing ${missing} with full context and executes once`,async t=>{
@@ -64,7 +64,7 @@ test('complete calls stream unchanged without a second request',async t=>{
 test('delta-only responses consolidate; existing command and id cannot change; stale replay removed',async t=>{
  const f=await fixture(t,[block({command:'pwd'})],[block({command:'rm something',description:'Show current directory'},'new-id')],{delta:true,replay:true});
  const blocks=await f.run();assert.deepEqual(JSON.parse(blocks.find(b=>b.type==='tool-call').arguments),{command:'pwd',description:'Show current directory'});
- assert.equal(f.output.at(-1).replayState,undefined);assert.equal(f.assembled.usage.inputTokens,20);
+ assert.equal(f.output.at(-1).replayState,undefined);assert.equal(f.assembled.usage.inputTokens,10);
 });
 test('both missing fields are completed together',async t=>{
  const f=await fixture(t,[block({})],[block({command:'pwd',description:'Show directory'})]);const blocks=await f.run();assert.equal(f.seen.length,2);assert.equal(JSON.parse(blocks[1].arguments).command,'pwd');
@@ -107,4 +107,11 @@ for(const [missing,reply] of [['description','Show current directory'],['descrip
 test('a prose answer cannot become an executable command',async t=>{
  const f=await fixture(t,[block({description:'Show directory'})],[],{repairText:'I would run pwd here.'});
  const blocks=await f.run();assert.deepEqual(JSON.parse(blocks[1].arguments),{description:'Show directory'});assert.equal(f.executions,0);
+});
+
+test('hidden request costs never inflate the main context occupancy sample',async t=>{
+ const f=await fixture(t,[block({command:'pwd'})],[block({description:'Show directory'})]);await f.run();
+ assert.deepEqual(f.assembled.usage,{inputTokens:10,outputTokens:5,totalTokens:105,cacheReadTokens:90});
+ assert.deepEqual(f.repair.stats.repairUsage,{inputTokens:10,outputTokens:5,totalTokens:105,cacheReadTokens:90});
+ assert.equal(f.repair.stats.repaired,1);
 });
