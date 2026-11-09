@@ -33,6 +33,8 @@ async function fixture(t,original,response,options={}){
    seen.push(request);
    if(seen.length===1){yield* chunks(original,options);return;}
    if(options.repairError)throw Error('Provider unavailable');
+   if(options.beforeRepair)options.beforeRepair(request);
+   if(options.stallAfterOutput){yield{type:'text-delta',index:0,text:'First token'};options.stallAfterOutput(request);request.signal?.throwIfAborted();}
    if(options.repairText!==undefined){yield{type:'text-delta',index:0,text:options.repairText};yield{type:'finish',reason:{kind:'stop'}};return;}
    if(options.abort){options.abort.abort();request.signal?.throwIfAborted();}
    yield* chunks(response,{kind:options.repairKind||'tool-calls'});
@@ -114,4 +116,15 @@ test('hidden request costs never inflate the main context occupancy sample',asyn
  assert.deepEqual(f.assembled.usage,{inputTokens:10,outputTokens:5,totalTokens:105,cacheReadTokens:90});
  assert.deepEqual(f.repair.stats.repairUsage,{inputTokens:10,outputTokens:5,totalTokens:105,cacheReadTokens:90});
  assert.equal(f.repair.stats.repaired,1);
+});
+
+test('queue and full-context prefill can exceed 60 seconds without spending the repair output deadline',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const f=await fixture(t,[block({command:'pwd'})],[block({description:'Show directory'})],{beforeRepair(request){t.mock.timers.tick(180000);assert.equal(request.signal.aborted,false);}});
+ const blocks=await f.run();assert.equal(f.repair.stats.repaired,1);assert.equal(JSON.parse(blocks[1].arguments).description,'Show directory');
+});
+test('a stalled output still times out once generation begins',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ const f=await fixture(t,[block({command:'pwd'})],[],{stallAfterOutput(request){t.mock.timers.tick(60001);assert.equal(request.signal.aborted,true);}});
+ const blocks=await f.run();assert.equal(f.repair.stats.failed,1);assert.match(f.repair.stats.lastError,/after output began/);assert.deepEqual(JSON.parse(blocks[1].arguments),{command:'pwd'});
 });
