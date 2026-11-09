@@ -25,6 +25,14 @@ async function fixture(t,tools={},names=['read','ask_user_question','browser_cli
  t.after(async()=>{await fiber?.dispose();for(const a of agents)await a.ctx.fiber.dispose();await ctx.fiber.dispose();});
  return {ctx,agent,scope,defs,addAgent,install,step,call,original,route:()=>route,routeFor:path=>routes.get(path),dispose:()=>fiber.dispose()};
 }
+test('system baseline exposes coordination immediately and keeps task tools searchable until selected',async t=>{
+ const system=['create_goal','exit_plan_mode','todo_write','subagent','list_agents','send_message','job_list','workflow','schedule_create','knowledge_add_document','knowledge_search','ninfer_models'];
+ const tasks=['mermaid_render','office_tools'];
+ const f=await fixture(t,{},[...system,...tasks],'essential',{compactBrowser:true,fastSelection:true});await f.install();
+ for(const name of system){assert.ok(f.ctx.tools.schemas(f.agent).some(schema=>schema.name===name),name);assert.equal((await f.call(name)).isError,false,name);}
+ for(const name of tasks)assert.equal(f.ctx.tools.get(name,f.agent),undefined,name);
+ const found=await f.call('browse_tools',{action:'find',names:['mermaid_render']});assert.equal(found.isError,false);assert.deepEqual(found.value.selected,['mermaid_render']);assert.equal(f.ctx.tools.get('mermaid_render',f.agent),undefined,'task tool opens only after selection is committed');
+});
 test('provider-default policy preserves all existing tools and original schemas; generic names do not collide',async t=>{
  const f=await fixture(t,{},['read','ask_user_question','browser_click','tool_search','tool_select','tool_close']);await f.install();
  for(const original of f.original)assert.deepEqual(f.ctx.tools.schemas(f.agent).find(s=>s.name===original.name),original);
