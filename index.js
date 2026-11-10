@@ -1,6 +1,6 @@
 import {canonicalName,candidatePage,findOptions,findKey} from './lib/candidates.js';
 import {installArgumentRepair} from './lib/argument-repair.js';
-import {guideTool,explainInvalidBash,toolInputs} from './lib/tool-guidance.js';
+import {guideAssembly,explainInvalidBash,toolInputs} from './lib/tool-guidance.js';
 import {chooseTools} from './lib/selector.js';
 import {discoverSkills,choiceStatus} from './lib/discovery.js';
 import {compactSkillDecision,compactSkillHistory} from './lib/context-window.js';
@@ -20,7 +20,7 @@ export async function apply(ctx,config){
  const argumentRepair=installArgumentRepair(ctx);
  // Brief tool-local guidance; native validation and execution stay authoritative.
  ctx.on('system-prompt/assemble',async(_assembly,_context,next)=>{
-  const assembly=await next();return {...assembly,tools:assembly.tools.map(guideTool)};
+  const assembly=await next();return guideAssembly(assembly);
  });
  ctx.on('tools/execute',async(exec,next)=>explainInvalidBash(exec,await next()));
  const settings=new Settings(config.dataDir);await settings.init();const semantic=new SemanticIndex(settings.root);await semantic.init();ctx.effect(()=>()=>semantic.dispose());
