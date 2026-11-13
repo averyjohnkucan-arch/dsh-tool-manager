@@ -10,7 +10,7 @@ Audited against installed DeepSeek Harness 0.2.1-rc.2 public Cordis services.
 - Registry changes invalidate cached scope checks; late registration, provider disposal/reload, and scope relocation are covered.
 - Removing this manager restores the original provider surface without removing other restrictions.
 - Standalone model-invocable skills appear in search without requiring a tool mapping. Full instructions load only through the public skill service.
-- Closing a selected tool changes availability only after successful compaction. Failed compaction preserves selection.
+- Explicit committed closure removes selected schemas immediately. Successful compaction resets all on-demand selections; failed compaction preserves them.
 - Folder and checkbox bulk operations include descendants across pages, preserve unrelated tools and metadata, and remain drafts until saved. Discovery controls are protected.
 - Semantic search only ranks the caller-visible catalog and falls back to BM25 on provider failure. Responses are bounded while streaming.
 
@@ -30,7 +30,7 @@ Tests use real DSH registry, restrictions, session and projection services, plus
 
 ## Compact browser and automatic retrieval (0.2.0)
 
-Real-service tests cover five-result automatic retrieval, committed-message deduplication, forced none/add/search choices, blocking task execution while the browser is open, compact receipt replacement on the model-facing surface, unchanged original audit events and checkpoint messages, persistent selected tools, and queued closure at compaction. Tuning limits and PTC decision replay are tested. Scope discovery probes are batched rather than probing each inherited tool individually. Old saved baselines remain compatible; new settings default to all tools on demand and the single browser controller.
+Real-service tests cover five-result automatic retrieval, committed-message deduplication, forced none/add/search choices, blocking task execution while the browser is open, compact receipt replacement on the model-facing surface, unchanged original audit events and checkpoint messages, persistent selected tools, and explicit closure and automatic expiration at successful compaction. Tuning limits and PTC decision replay are tested. Scope discovery probes are batched rather than probing each inherited tool individually. Old saved baselines remain compatible; new settings default to all tools on demand and the single browser controller.
 
 Surface replacements update model history through a public API, not the inference engine's KV cache. Native browser results are individually replaceable. Catalog payloads mixed into a PTC transport result are not individually pruned. Exempt agent-local schemas may remain visible, but compact mode guards their execution until selected. This constraint is surfaced to users rather than bypassed through core patches.
 
@@ -38,7 +38,7 @@ The unresolved-browser turn-stop path is also tested: two bounded steering messa
 
 ## Selection lifetime (0.2.1)
 
-Persistent remains the default for old and new settings. Optional per-tool lifetime or per-selection use_once retires an on-demand tool only from committed native/PTC success events. Errors and replacement copies do not retire it. Replay restores the same state. Explicit closure still waits for successful compaction. Long instructions load through mapped/explicit skills, with no rewriting of provider schemas or task arguments/results. This does not control engine KV eviction.
+Persistent remains the default for old and new settings. Optional per-tool lifetime or per-selection use_once retires an on-demand tool only from committed native/PTC success events. Errors and replacement copies do not retire it. Replay restores the same state. Explicit closure removes schemas immediately after commit; successful compaction resets the remaining on-demand selections. Long instructions load through mapped/explicit skills, with no rewriting of provider schemas or task arguments/results. This does not control engine KV eviction.
 
 ## Fast selection (0.3.0)
 

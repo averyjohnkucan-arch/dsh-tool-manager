@@ -112,7 +112,7 @@ test('compact browser gates unselected task calls, auto-closes on add, and retir
  const selected=await f.call('browse_tools',{action:'add',names:['browser_click']});assert.equal(selected.isError,false);commit(selected);await f.step();assert.ok(f.ctx.tools.get('browser_click',f.agent));assert.equal((await f.call('browser_click')).isError,false,'add automatically closes before the next task call');
  const done=await f.call('browse_tools',{action:'close'});assert.match(done.value.status,/1 tools selected/);commit(done);await f.step();assert.equal((await f.call('browser_click')).isError,false);
  const messages=f.agent.session.deriveMessages();assert.ok(messages.some(m=>m.content.some(b=>b.type==='text'&&b.text==='1 tools selected')));assert.ok(!f.agent.session.surface.nodes.includes(catalogEvent.seq));assert.ok(f.agent.session.surface.nodes.includes(checkpoint.seq));assert.equal(f.agent.session.eventAt(catalogEvent.seq).data.meta.toolManager.catalogPage,true,'original audit event must remain unchanged');
- const queued=await f.call('browse_tools',{action:'close_tools',names:['browser_click']});commit(queued);await f.step();assert.ok(f.ctx.tools.get('browser_click',f.agent));
+ const queued=await f.call('browse_tools',{action:'close_tools',names:['browser_click']});commit(queued);assert.equal(f.ctx.tools.get('browser_click',f.agent),undefined,'committed explicit closure updates the very next assembly');await f.step();
  f.agent.session.append('compaction/end',{compactionId:'browser-close-ok',turn:0});await f.step();assert.equal(f.ctx.tools.get('browser_click',f.agent),undefined);
 });
 test('automatic retrieval offers five suggestions once, requires a choice, and select-none retires its notice',async t=>{
@@ -213,4 +213,42 @@ test('committed selection changes the immediate assembly before pre-step and rep
  f.agent.session.append('tool/result',{turn:2,step:2,message:{id:'immediate-close',role:'tool',toolCallId:'immediate-close',content:closing.content,source:{kind:'tool'}},meta:closing.meta},{surfaceOp:'append'});
  f.agent.session.append('compaction/end',{compactionId:'immediate-compaction',turn:2});
  assert.ok(!(await f.ctx.systemPrompt.assemble({scope:f.agent})).tools.some(t=>t.name==='browser_click'),'successful compaction removes a closed schema before the next request');
+});
+
+test('browser folder opens all original schemas in the immediate next request, persists across turns, closes on demand or successful compaction',async t=>{
+ const names=['browser_open','browser_see','browser_act','browser_text','browser_screenshot','browser_cdp'];
+ const f=await fixture(t,{read:override('basic')},['read',...names],'discover',{compactBrowser:true,fastSelection:true});await f.install();
+ let id=0;const commit=result=>f.agent.session.append('tool/result',{turn:0,step:0,message:{id:'folder-'+(++id),role:'tool',toolCallId:'folder-call-'+id,content:result.content,source:{kind:'tool',name:'browse_tools'}},meta:result.meta},{surfaceOp:'append'});
+ const open=await f.call('browse_tools',{action:'find',names:['browser']});assert.equal(open.isError,false,JSON.stringify(open));
+ assert.deepEqual(open.value.selected,[...names].sort());assert.deepEqual(open.value.folders,['browser']);
+ assert.equal(f.ctx.tools.get('browser_open',f.agent),undefined,'uncommitted folder cannot open schemas');commit(open);
+ const original=new Map(f.original.map(s=>[s.name,s]));
+ const assembled=await f.ctx.systemPrompt.assemble({scope:f.agent});for(const n of names)assert.deepEqual(assembled.tools.find(s=>s.name===n),original.get(n),n);
+ assert.match(JSON.stringify(assembled.sections),/Open tool folders:.*browser/);assert.match(JSON.stringify(assembled.sections),/prefer the browser folder/);
+ f.agent.session.append('turn/start',{turn:1});await f.step();for(const n of names)assert.ok(f.ctx.tools.get(n,f.agent));
+ f.agent.session.append('compaction/end',{compactionId:'failed-folder',turn:1,error:'cancelled'});for(const n of names)assert.ok(f.ctx.tools.get(n,f.agent));
+ const closed=await f.call('browse_tools',{action:'close_tools',names:['browser']});assert.equal(closed.isError,false);commit(closed);
+ for(const n of names)assert.equal(f.ctx.tools.get(n,f.agent),undefined);assert.ok(f.ctx.tools.get('read',f.agent));
+ commit(await f.call('browse_tools',{action:'find',task:'browser'}));for(const n of names)assert.ok(f.ctx.tools.get(n,f.agent));
+ f.agent.session.append('compaction/end',{compactionId:'success-folder',turn:1});
+ for(const n of names)assert.equal(f.ctx.tools.get(n,f.agent),undefined);assert.ok(f.ctx.tools.get('read',f.agent));
+ const after=await f.ctx.systemPrompt.assemble({scope:f.agent});assert.match(JSON.stringify(after.sections),/Open tool folders: \[\]/);
+});
+
+test('folder expansion respects per-agent restrictions and user disabled tools; generic folders larger than entry limit are atomic',async t=>{
+ const names=Array.from({length:9},(_,i)=>'office_'+i);
+ const tools=Object.fromEntries(names.map(n=>[n,{...override('discover'),group:'Office'}]));tools.office_8.mode='disabled';
+ const f=await fixture(t,tools,names,'discover',{compactBrowser:true,fastSelection:true});f.agent.ctx.tools.restrict({deny:['office_7']});await f.install();
+ const r=await f.call('browse_tools',{action:'find',names:['office']});assert.equal(r.isError,false,JSON.stringify(r));assert.equal(r.value.selected.length,7);assert.ok(!r.value.selected.includes('office_7'));assert.ok(!r.value.selected.includes('office_8'));
+ const other=f.addAgent('full-office');const full=await f.call('browse_tools',{action:'find',names:['office']},other.agent);assert.equal(full.isError,false,JSON.stringify(full));assert.equal(full.value.selected.length,8,'one folder may expand beyond seven individual tools');
+ assert.equal((await f.call('browse_tools',{action:'find',names:['office','invented']})).isError,true);assert.equal(f.ctx.tools.get('office_0',f.agent),undefined,'failed or uncommitted selection cannot grant schemas');
+});
+
+test('capability search can choose browser as one folder and returns only real callable names',async t=>{
+ const names=['browser_open','browser_see','browser_act','browser_text','browser_screenshot','browser_cdp'];
+ const f=await fixture(t,{},names,'discover',{compactBrowser:true,fastSelection:true});let requested;
+ new(class extends Service{constructor(){super(f.ctx,'llm');}async prepareCall(config,_signal,configure){const controls=configure({}, {reasoning:{efforts:[{id:'off'}]}});return{config:{...config,...controls},async *stream(r){requested=JSON.parse(r.messages[0].content[0].text);yield{type:'block-end',index:0,block:{type:'tool-call',name:'select_tools',arguments:'{"names":["browser"],"skills":[]}'}};yield{type:'finish',reason:{kind:'tool-calls'}};}};}})();
+ await f.install();await f.ctx.waterfall('agent/request',{agent:f.agent},()=>Promise.resolve({provider:'fixture',model:'fixture'}));
+ const r=await f.call('browse_tools',{action:'find',task:'browse and interact with a web page',keywords:['browser']});assert.equal(r.isError,false,JSON.stringify(r));
+ assert.deepEqual(requested.candidates.find(c=>c.name==='browser').members,[...names].sort());assert.deepEqual(r.value.selected,[...names].sort());assert.equal(r.value.ready.length,6);assert.ok(!r.value.ready.some(t=>t.name==='browser'));assert.equal(r.value.status,'Model chose browser');
 });
