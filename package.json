@@ -3,7 +3,7 @@
   "version": "0.5.0",
   "type": "module",
   "license": "MIT",
-  "description": "Search, select and manage tool context through supported DSH hooks.",
+  "description": "Find installed tools and skills on demand, and choose which tool definitions stay in the model context.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

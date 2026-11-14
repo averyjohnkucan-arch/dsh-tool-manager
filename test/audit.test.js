@@ -130,7 +130,7 @@ test('an unresolved browser steers the model back to a choice with bounded retri
  const f=await fixture(t,{},['browser_click'],'discover',{compactBrowser:true});await f.install();const messages=[];f.agent.steer=message=>messages.push(message);
  const opened=await f.call('browse_tools',{action:'search',task:'browser'});f.agent.session.append('tool/result',{turn:1,step:1,message:{id:'open-stop-test',role:'tool',toolCallId:'stop-open',content:opened.content,source:{kind:'tool',name:'browse_tools'}},meta:opened.meta},{surfaceOp:'append'});
  await f.ctx.serial('agent/turn-stopping',{agent:f.agent,turn:1});await f.ctx.serial('agent/turn-stopping',{agent:f.agent,turn:1});assert.equal(messages.length,2);assert.match(messages[0].content[0].text,/choose none/);
- await assert.rejects(f.ctx.serial('agent/turn-stopping',{agent:f.agent,turn:1}),/choice required/);
+ await assert.rejects(f.ctx.serial('agent/turn-stopping',{agent:f.agent,turn:1}),/selection required/);
 });
 test('use-once selection keeps failed calls available and retires after committed success through public services',async t=>{
  const f=await fixture(t,{},['read'],'discover',{compactBrowser:true});f.ctx.tools.register(defineTool({name:'browser_click',description:'Click fixture',parameters:{count:{type:'integer',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},execute:async()=> 'original task output'}));await f.install();
