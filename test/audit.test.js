@@ -1,3 +1,5 @@
+import {executeOne} from './execute-one.js';
+import {apply as installNativeExecutor} from '@deepseek-ai/dsh-tool-executor-native';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
@@ -14,14 +16,14 @@ const def=name=>defineTool({name,description:`Fixture ${name}: browse a page or 
 const override=mode=>({mode,owner:'',summary:'',group:'',skills:[]});
 async function fixture(t,tools={},names=['read','ask_user_question','browser_click'],defaultMode='inherit',extra={}){
  const dir=await mkdtemp(join(tmpdir(),'tool-manager-audit-'));t.after(()=>rm(dir,{recursive:true,force:true}));await writeFile(join(dir,'settings.json'),JSON.stringify({...defaults(),compactBrowser:false,fastSelection:false,tools,defaultMode,...extra}));
- const ctx=new Context();new SystemPrompt(ctx,{});new ToolRuntime(ctx);new SessionStore(ctx);new Projection(ctx);new Skills(ctx);const agents=[];const defs=new Map(),routes=new Map();let route;
+ const ctx=new Context();new SystemPrompt(ctx,{});new ToolRuntime(ctx);installNativeExecutor(ctx);new SessionStore(ctx);new Projection(ctx);new Skills(ctx);const agents=[];const defs=new Map(),routes=new Map();let route;
  new(class extends Service{constructor(){super(ctx,'agents');}list(){return agents;}})();new(class extends Service{constructor(){super(ctx,'webServer');}register(r){route=r;routes.set(r.path,r);return()=>routes.delete(r.path);}getOrigin(){return 'http://127.0.0.1:3099';}})();
  for(const name of names){const d=def(name);defs.set(name,d);ctx.tools.register(d);}
  const addAgent=id=>{const agent={session:ctx.sessions.create(id,{meta:{cwd:dir}})};const scope=createScope(ctx,agent);agent.ctx=scope.ctx;agents.push(agent);return {agent,scope};};
  const {agent,scope}=addAgent('one');const original=ctx.tools.schemas(agent);
  let fiber;const install=async()=>fiber=await ctx.plugin(plugin,{dataDir:dir});
  const step=async(a=agent)=>ctx.waterfall('agent/pre-step',{agent:a},()=>Promise.resolve({messages:[],kind:'continue',preserved:'fixture'}));
- const call=async(name,args={},a=agent)=>ctx.tools.execute({callId:'fixture-'+Math.random(),name,arguments:args,agent:a,signal:new AbortController().signal});
+ const call=async(name,args={},a=agent)=>executeOne(ctx, {callId:'fixture-'+Math.random(),name,arguments:args,agent:a,signal:new AbortController().signal});
  t.after(async()=>{await fiber?.dispose();for(const a of agents)await a.ctx.fiber.dispose();await ctx.fiber.dispose();});
  return {ctx,agent,scope,defs,addAgent,install,step,call,original,route:()=>route,routeFor:path=>routes.get(path),dispose:()=>fiber.dispose()};
 }

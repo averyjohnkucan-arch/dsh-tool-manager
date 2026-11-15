@@ -1,3 +1,5 @@
+import {executeOne} from './execute-one.js';
+import {apply as installNativeExecutor} from '@deepseek-ai/dsh-tool-executor-native';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Context} from '@deepseek-ai/cordis';
@@ -22,7 +24,7 @@ async function* chunks(blocks,{delta=false,kind='tool-calls',replay=false}={}){
  yield {type:'finish',reason:{kind},...(replay?{replayState:{response:{original:true}}}:{})};
 }
 async function fixture(t,original,response,options={}){
- const ctx=new Context(),llm=new LlmRuntime(options.isolated?ctx.isolate('llm'):ctx);new SystemPrompt(ctx,{});new ToolRuntime(ctx);
+ const ctx=new Context(),llm=new LlmRuntime(options.isolated?ctx.isolate('llm'):ctx);new SystemPrompt(ctx,{});new ToolRuntime(ctx);installNativeExecutor(ctx);
  t.after(()=>ctx.fiber.dispose());
  const seen=[];let executions=0;
  ctx.tools.register(defineTool({name:'bash',description:schema.description,parameters:{description:{type:'string',required:true},command:{type:'string',required:true}},output:{schema:{type:'string'},render:(_a,v)=>[{type:'text',text:v}]},execute:async()=>{executions++;return 'done';}}));
@@ -57,7 +59,7 @@ for(const missing of ['description','command'])test(`privately fills missing ${m
  assert.deepEqual(repair.messages.slice(0,2),f.messages);assert.equal(repair.messages[2].role,'assistant');assert.equal(repair.messages[3].toolCallId,'original');assert.match(repair.messages.at(-1).content[0].text,new RegExp(`What was ${missing}`));
  assert.equal(isAgentLoopRequest(repair),false);assert.equal(repair.sessionId,undefined);
  assert.equal(JSON.stringify(blocks).includes('What was'),false);assert.equal(blocks.filter(b=>b.type==='tool-call').length,1);
- const result=await f.ctx.tools.execute({name:call.name,callId:call.id,arguments:JSON.parse(call.arguments),signal:f.request.signal});
+ const result=await executeOne(f.ctx, {name:call.name,callId:call.id,arguments:JSON.parse(call.arguments),signal:f.request.signal});
  assert.equal(result.isError,false);assert.equal(f.executions,1);
 });
 test('complete calls stream unchanged without a second request',async t=>{
@@ -78,7 +80,7 @@ test('parallel calls are paired in the private branch and retained individually'
 for(const options of [{repairError:true},{repairKind:'max-tokens'}])test(`failed repair is bounded and native validation still rejects: ${JSON.stringify(options)}`,async t=>{
  const f=await fixture(t,[block({description:'Show directory'})],[block({command:'pwd'})],options);const blocks=await f.run(),call=blocks[1];
  assert.equal(f.seen.length,2);assert.deepEqual(JSON.parse(call.arguments),{description:'Show directory'});
- const result=await f.ctx.tools.execute({name:'bash',callId:call.id,arguments:JSON.parse(call.arguments),signal:f.request.signal});assert.equal(result.isError,true);assert.equal(f.executions,0);
+ const result=await executeOne(f.ctx, {name:'bash',callId:call.id,arguments:JSON.parse(call.arguments),signal:f.request.signal});assert.equal(result.isError,true);assert.equal(f.executions,0);
 });
 test('cancellation during repair never emits a callable tool',async t=>{
  const abort=new AbortController(),f=await fixture(t,[block({command:'pwd'})],[block({description:'Show directory'})],{abort});
