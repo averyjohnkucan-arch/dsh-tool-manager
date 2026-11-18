@@ -1,26 +1,24 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';import {provenance,rows} from '../lib/catalog.js';import {defaults,Settings} from '../lib/settings.js';
-test('system baseline keeps coordination and all knowledge operations top-level while specialists need discovery',()=>{
- const system=['bash','read','web_search','create_goal','get_goal','update_goal','enter_plan_mode','exit_plan_mode','todo_write','subagent','subagent_fork','list_agents','send_message','interrupt_agent','job_list','job_output','job_kill','schedule_create','schedule_list','schedule_update','schedule_delete','workflow','knowledge_search','knowledge_read_document','knowledge_add_document','knowledge_create_base','knowledge_future_operation','ninfer_models'];
- const tasks=['mermaid_render','generate_video','office_tools','browser_click','future_plugin_tool'];
- const result=rows([...system,...tasks].map(name=>({name})),defaults(),new Map(),new Set([...system,...tasks]));
- for(const name of system)assert.equal(result.find(row=>row.name===name).mode,'basic',name);
- for(const name of tasks)assert.equal(result.find(row=>row.name===name).mode,'discover',name);
- const settings=defaults();settings.tools.create_goal={mode:'disabled'};settings.tools.mermaid_render={mode:'basic'};
- const custom=rows([{name:'create_goal'},{name:'mermaid_render'}],settings,new Map(),new Set());
- assert.equal(custom.find(row=>row.name==='create_goal').mode,'disabled');assert.equal(custom.find(row=>row.name==='mermaid_render').mode,'basic');
-});
-test('discovers built-in providers in pnpm virtual store, ignores unrelated name properties, labels ambiguity',async t=>{const root=await mkdtemp(join(tmpdir(),'tool-owners-'));t.after(()=>rm(root,{recursive:true,force:true}));for(const name of ['fs','bash','bash-persistent']){const dir=join(root,'node_modules','.pnpm',`@deepseek-ai+dsh-tool-${name}@1`,'node_modules','@deepseek-ai',`dsh-tool-${name}`);await mkdir(join(dir,'lib'),{recursive:true});await writeFile(join(dir,'package.json'),JSON.stringify({name:`@deepseek-ai/dsh-tool-${name}`}));await writeFile(join(dir,'lib/index.js'),`const unrelated={name:'not_a_tool'};defineTool({name:'${name==='fs'?'read':'bash'}',description:'fixture'});`);}const map=await provenance([join(root,'plugins','tool-manager','index.js')]);assert.deepEqual([...map.get('read')],['@deepseek-ai/dsh-tool-fs']);assert.equal(map.has('not_a_tool'),false);const result=rows([{name:'read'},{name:'bash'},{name:'third_party_dynamic'}],defaults(),map,new Set());assert.equal(result.find(r=>r.name==='read').owner,'@deepseek-ai/dsh-tool-fs');assert.equal(result.find(r=>r.name==='bash').owner,'DSH built-in tools');assert.equal(result.find(r=>r.name==='bash').candidates.length,2);assert.equal(result.find(r=>r.name==='third_party_dynamic').owner,'Unattributed tools');});
-test('provider-default migration preserves every explicit per-tool choice',async t=>{const root=await mkdtemp(join(tmpdir(),'tool-defaults-'));t.after(()=>rm(root,{recursive:true,force:true}));const original={...defaults(),version:1};delete original.defaultMode;original.basic=[];original.tools.custom_tool={mode:'discover',owner:'custom',summary:'',group:'',skills:[]};await writeFile(join(root,'settings.json'),JSON.stringify(original));const s=new Settings(root);await s.init();assert.equal(s.value.version,2);assert.equal(s.value.defaultMode,'inherit');assert.equal(s.value.tools.custom_tool.mode,'discover');const result=rows([{name:'ask_user_question'},{name:'future_plugin_tool'},{name:'custom_tool'}],s.value,new Map(),new Set());assert.equal(result.find(r=>r.name==='ask_user_question').mode,'inherit');assert.equal(result.find(r=>r.name==='future_plugin_tool').mode,'inherit');assert.equal(result.find(r=>r.name==='custom_tool').mode,'discover');});
-test('stock baseline keeps standard tools and defers present and future plugin tools without overriding explicit settings',()=>{
- const settings={...defaults(),defaultMode:'stock',tools:{pinned_extra:{mode:'basic',owner:'',summary:'',group:'',skills:[]},kept_default:{mode:'inherit',owner:'',summary:'',group:'',skills:[]}}};
- const result=rows(['bash','pwsh','skill','read_image','subagent','working_directory','extra','future_extra','pinned_extra','kept_default','tool_manager_search'].map(name=>({name})),settings,new Map(),new Set());
- for(const name of ['bash','pwsh','skill','read_image','subagent','working_directory','kept_default'])assert.equal(result.find(r=>r.name===name).mode,'inherit');
- for(const name of ['extra','future_extra'])assert.equal(result.find(r=>r.name===name).mode,'discover');
- assert.equal(result.find(r=>r.name==='pinned_extra').mode,'basic');assert.equal(result.find(r=>r.name==='tool_manager_search').mode,'basic');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {provenance,rows} from '../lib/catalog.js';
+import {defaults} from '../lib/settings.js';
+
+test('DSH, browser, Harness, and control tools stay loaded while third-party tools default hidden',()=>{
+ const owners=new Map([['future_stock_tool',new Set(['@deepseek-ai/dsh-tool-future'])]]);
+ const names=['read','browser_click','harness_status','future_stock_tool','browse_tools','third_party_tool'];
+ const result=rows(names.map(name=>({name,description:name})),defaults(),owners,new Set(names));
+ for(const name of names.slice(0,-1)){const tool=result.find(row=>row.name===name);assert.equal(tool.mode,'loaded',name);assert.equal(tool.stock,true,name);}
+ const third=result.at(-1);assert.equal(third.mode,'hidden');assert.equal(third.filterable,true);
+ const configured={version:3,tools:{third_party_tool:'loaded'}};assert.equal(rows([{name:'third_party_tool'}],configured,new Map(),new Set(['third_party_tool']))[0].mode,'loaded');
 });
 
-test('custom display summaries do not erase the registered capability from search',async()=>{
- const {search}=await import('../lib/search.js');const cfg=defaults();cfg.tools.video_tools={summary:'Default LTX; explicit HQ is slower'};
- const catalog=rows([{name:'video_tools',description:'Generate or create a video from a text prompt. Text-to-video with generated audio.'}],cfg,new Map(),new Set(['video_tools']));
- assert.equal(catalog[0].summary,'Default LTX; explicit HQ is slower');assert.equal(search(catalog,'create')[0]?.name,'video_tools');
+test('official tool provenance is discovered recursively',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'simple-tool-owner-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ const directory=join(root,'node_modules','@deepseek-ai','dsh-tool-fixture','lib','nested');await mkdir(directory,{recursive:true});
+ await writeFile(join(root,'node_modules','@deepseek-ai','dsh-tool-fixture','package.json'),JSON.stringify({name:'@deepseek-ai/dsh-tool-fixture'}));
+ await writeFile(join(directory,'tools.js'),'ctx.tools.register(defineTool({\n name: "fixture_tool", description: "fixture"\n}));');
+ const owners=await provenance([root]);assert.deepEqual([...owners.get('fixture_tool')],['@deepseek-ai/dsh-tool-fixture']);
 });

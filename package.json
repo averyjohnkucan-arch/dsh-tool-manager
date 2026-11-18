@@ -1,24 +1,21 @@
 {
   "name": "dsh-tool-manager",
-  "version": "0.5.2-rc4.1",
+  "version": "1.0.0-rc4.0",
   "type": "module",
   "license": "MIT",
-  "description": "Find installed tools and skills on demand, and choose which tool definitions stay in the model context.",
+  "description": "Choose which DSH tools stay loaded and which remain hidden behind tool search.",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
-    "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
     "index.js",
     "client.js",
     "lib",
-    "locale",
     "icon.svg",
     "cordis.patch.yml",
     "README.md",
-    "docs",
     "LICENSE",
     "COMPATIBILITY.md"
   ],
@@ -30,22 +27,17 @@
     "@deepseek-ai/cordis": "~4.1.0",
     "@deepseek-ai/schemastery": "~3.19.0",
     "@deepseek-ai/dsh-tools": "0.2.2-rc.4",
-    "@deepseek-ai/dsh-skill": "0.2.2-rc.4",
-    "zod": "4.6.6",
-    "@deepseek-ai/dsh-llm": "0.2.2-rc.4"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "~4.1.0",
     "@deepseek-ai/schemastery": "~3.19.0",
     "@deepseek-ai/dsh-tools": "0.2.2-rc.4",
-    "@deepseek-ai/dsh-skill": "0.2.2-rc.4",
     "zod": "4.6.6",
     "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.4",
     "@deepseek-ai/dsh-session": "0.2.2-rc.4",
     "@deepseek-ai/dsh-session-projection": "0.2.2-rc.4",
-    "@deepseek-ai/dsh-agent": "0.2.2-rc.4",
     "@deepseek-ai/dsh-scope": "0.2.2-rc.4",
-    "@deepseek-ai/dsh-llm": "0.2.2-rc.4",
     "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.4"
   },
   "dsh": {
@@ -56,8 +48,7 @@
       "platform": "web",
       "immediately": true,
       "inject": [
-        "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-settings"
       ]
     }
   },

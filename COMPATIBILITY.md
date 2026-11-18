@@ -1,13 +1,8 @@
-# DeepSeek Harness RC4
+# Compatibility
 
-This build targets DSH 0.2.2-rc.4 and Node.js 24.9 or newer. The following notes describe validation of the previous release.
+- DeepSeek Harness: `0.2.2-rc.4`
+- Node.js: the version required by that DSH release
+- Uses public DSH tool registry, restriction, system prompt, session projection, web server, agent, and settings-slot APIs
+- Does not modify DSH core files
 
-# DSH compatibility — 0.5.1
-
-Reviewed on November 14, 2026 against DSH **0.2.2-rc.1**, Cordis **4.1.0** and Schemastery **3.19.0**. Dependency declarations and lockfiles target the current host instead of pulling in the older DSH/Cordis API generation.
-
-Updated the test and integration compositions to select DSH’s native executor and submit tool-call batches through the current API. Pinned Zod to the host-compatible schema version. The plugin continues to use the host-selected executor in production.
-
-DSH 0.2.2 declares Node 24.9 or newer. Compatibility checks cover the existing Node 22.22 installation as well as an isolated Node 24 runtime; the user’s system runtime was not changed. CI uses Node 24. Model servers, CUDA kernels and optional large model downloads are outside this source/API compatibility check; request serialization and scheduler tests use controlled local fixtures where appropriate.
-
-The GitHub update does not replace an already-installed plugin automatically. Update the plugin through DSH to use this release, preserving its saved settings and model profiles.
+Official DSH tools are identified from installed `@deepseek-ai/*` package sources, with a small fallback list for host-created tools. Browser and Harness tool prefixes are always treated as stock.

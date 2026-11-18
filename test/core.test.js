@@ -1,34 +1,33 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {empty,fold,select,close,KEY} from '../lib/state.js';import {search} from '../lib/search.js';import {validate,defaults,Settings} from '../lib/settings.js';import {mkdtemp,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';
-const receipt=s=>({type:'tool/result',data:{message:{isError:false},meta:{toolManager:{owner:KEY,state:s}}}});
-test('search does not activate tools, exact capabilities rank, empty queries stay empty',()=>{const rows=[{name:'browser_click',group:'Browser',owner:'browser',summary:'Click a button on a web page'},{name:'cad_render',group:'Engineering',owner:'cad',summary:'Render a CAD mesh'}];assert.equal(search(rows,'click browser button')[0].name,'browser_click');assert.deepEqual(search(rows,'the and'),[]);assert.deepEqual(search(rows,'unrelated'),[]);assert.equal(rows.length,2);});
-test('selections persist through ordinary events and failed compaction, then expire at successful compaction',()=>{
- let s=select(empty(),['browser_click','cad_render']);
- assert.equal(fold(s,{type:'turn/start',seq:4,data:{turn:2}}),s);
- assert.equal(fold(s,{type:'compaction/end',seq:8,data:{error:'failed'}}),s);
- const closed=close(s,['browser_click']);assert.deepEqual(closed.selected,['cad_render']);assert.deepEqual(closed.pending,[]);
- s=fold(closed,{type:'compaction/end',seq:10,data:{compactionId:'ok'}});assert.deepEqual(s.selected,[]);assert.deepEqual(s.oneShot,[]);
- assert.equal(fold(s,{type:'compaction/end',seq:10,data:{}}),s);
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {defaults,validate,Settings} from '../lib/settings.js';
+import {empty,fold,select,unselect,KEY} from '../lib/state.js';
+import {search} from '../lib/search.js';
+
+test('settings have only loaded and hidden states and save atomically',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'simple-tool-manager-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const settings=new Settings(directory);await settings.init();assert.deepEqual(settings.value,defaults());
+ const value={version:3,tools:{office_write:'hidden',video_generate:'loaded'}};await settings.save(value);
+ assert.deepEqual(JSON.parse(await readFile(join(directory,'settings.json'),'utf8')),value);
+ assert.throws(()=>validate({version:3,tools:{x:'disabled'}}));
 });
-test('reselect cancels closure, log replay restores full state, errors cannot change it',()=>{const original=close(select(empty(),['a','b'],['browser-skill']),['a']);const restored=fold(empty(),receipt(original));assert.deepEqual(restored,original);const reopened=select(restored,['a']);assert.deepEqual(reopened.pending,[]);const err=receipt(select(empty(),['wrong']));err.data.message.isError=true;assert.equal(fold(restored,err),restored);const nested={type:'tool/ptc-dispatch',data:{name:'tool_select',isError:false,meta:receipt(reopened).data.meta}};assert.deepEqual(fold(empty(),nested),reopened);});
-test('selection validates limits atomically',()=>{assert.throws(()=>select(empty(),Array.from({length:8},(_,i)=>'t'+i)));assert.throws(()=>select(empty(),['a','a']));assert.throws(()=>close(empty(),['a']));assert.deepEqual(select(empty(),['a','b'],[],2).selected,['a','b']);});
-test('settings survive atomic save, bounds reject corrupt policy',async t=>{const dir=await mkdtemp(join(tmpdir(),'tool-manager-'));t.after(()=>rm(dir,{recursive:true,force:true}));const s=new Settings(dir);await s.init();const v=defaults();v.tools.browser_click={mode:'discover',owner:'browser',summary:'Click',group:'Browser',skills:['browser']};await s.save(v);const other=new Settings(dir);await other.init();assert.deepEqual(other.value,v);assert.throws(()=>validate({...v,maxSelect:8}));assert.throws(()=>validate({...v,tools:{x:{...v.tools.browser_click,skills:['x'.repeat(300)]}}}));});
-test('use-once retires only committed successful calls, preserving persistent tools and failed retries',()=>{
- let s=select(empty(),['once','keep'],[],7,['once']);
- const result=(name,isError=false)=>({type:'tool/result',seq:3,data:{message:{source:{name},isError,content:[{type:'text',text:'original task output'}]}}});
- assert.equal(fold(s,result('once',true)),s);assert.equal(fold(s,result('keep')),s);
- const replacement={...result('once'),surfaceOp:{op:'replace'}};assert.equal(fold(s,replacement),s);
- const event=result('once'),before=structuredClone(event);s=fold(s,event);assert.deepEqual(event,before);assert.deepEqual(s.selected,['keep']);assert.deepEqual(s.oneShot,[]);
- s=select(s,['once'],[],7,['once']);s=fold(s,{type:'tool/ptc-dispatch',data:{name:'once',isError:false}});assert.deepEqual(s.selected,['keep']);
+
+test('old settings migrate to the two-state format',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'simple-tool-migrate-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ await writeFile(join(directory,'settings.json'),JSON.stringify({version:2,tools:{a:{mode:'basic'},b:{mode:'discover'},c:{mode:'inherit'}}}));
+ const settings=new Settings(directory);await settings.init();assert.deepEqual(settings.value,{version:3,tools:{a:'loaded',b:'hidden'}});
 });
-test('use-once reselect changes lifetime and successful compaction removes pending lifetime metadata',()=>{
- const once=select(empty(),['a'],[],7,['a']);assert.deepEqual(select(once,['a']).oneShot,[]);
- const queued=close(once,['a']);assert.deepEqual(select(queued,['a'],[],7,['a']).pending,[]);
- const compacted=fold(queued,{type:'compaction/end',seq:9,data:{}});assert.deepEqual(compacted.oneShot,[]);
- assert.throws(()=>select(empty(),['a'],[],7,['b']));
- const cfg=defaults();cfg.tools.a={mode:'discover',owner:'',group:'',summary:'',skills:[],lifetime:'once'};assert.equal(validate(cfg).tools.a.lifetime,'once');assert.throws(()=>validate({...cfg,tools:{a:{...cfg.tools.a,lifetime:'invalid'}}}));
-});
-test('switching to model-initiated discovery dismisses an old automatic browser without dropping selected tools',()=>{
- const original={...select(empty(),['keep']),browser:{open:true,added:[],resolutionSeq:-1,status:''}};
- const dismissed=fold(original,{type:'user/message',seq:20,data:{source:{kind:KEY,dismissBrowser:true}}});assert.equal(dismissed.browser.open,false);assert.equal(dismissed.browser.resolutionSeq,20);assert.deepEqual(dismissed.selected,['keep']);
- const opened=fold(dismissed,{type:'tool/result',seq:21,data:{message:{},meta:{toolManager:{owner:KEY,browser:{action:'open'}}}}});assert.equal(opened.browser.manual,true);
+
+test('conversation selection is replayable and search is deterministic',()=>{
+ let state=select(empty(),['office_write']);assert.deepEqual(state.selected,['office_write']);
+ state=unselect(state,['office_write']);assert.deepEqual(state.selected,[]);
+ const next=select(state,['video_generate']);
+ const event={type:'tool/result',data:{message:{isError:false},meta:{toolManager:{owner:KEY,state:next}}}};
+ assert.deepEqual(fold(empty(),event),next);
+ event.data.message.isError=true;assert.deepEqual(fold(empty(),event),empty());
+ const tools=[{name:'office_write',owner:'office',description:'Write spreadsheet cells'},{name:'video_generate',owner:'media',description:'Generate a video'}];
+ assert.equal(search(tools,'spreadsheet editing')[0].name,'office_write');
 });
