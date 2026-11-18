@@ -1,5 +1,7 @@
 # DSH Tool Manager
 
+**RC4 installation trial.** Start DeepSeek Harness with `npx @deepseek-ai/dsh@0.2.2-rc.4 web` (Node.js 24.9 or newer). In **Plugins → Add plugin**, paste the full path to this RC4 trial’s `.tgz` file and enable the plugin.
+
 Choose which tools a model can see in DeepSeek Harness. Keep everyday tools available, and let the model find and load specialist tools and skill instructions when a task needs them.
 
 Every visible tool adds a definition to the model's context. With many plugins installed, those definitions can take up space before the model starts working. Tool Manager keeps a smaller starting set and loads additional definitions on demand. You control that policy in **Settings → Tool manager**.
@@ -55,7 +57,7 @@ browse_tools({
 })
 ```
 
-The plugin searches permitted tools and model-invocable skills locally. It then sends a bounded shortlist to a separate selection request using the conversation's current model with reasoning off. The main conversation receives the chosen tool names, their definitions, any selected skill instructions, and short call hints. The shortlist stays in audit metadata.
+The plugin searches permitted tools and model-invocable skills locally. It then sends a bounded shortlist to a separate selection request using the conversation's current model with reasoning Off when available, or its default otherwise. The main conversation receives the chosen tool names, their definitions, any selected skill instructions, and short call hints. The shortlist stays in audit metadata.
 
 The model then calls the selected tools to do the work. A skill supplies instructions; its provider or associated tools supply executable capabilities. Selecting a tool or skill does not execute the task.
 
@@ -65,7 +67,7 @@ Exact tool or folder names load directly, without an auxiliary selection request
 browse_tools({action: "find", names: ["office_tools"]})
 ```
 
-Capability searches use names, descriptions and registered input documentation. Tool and skill rankings are separate. The shortlist contains at most ten candidates in 10,000 characters. Fast selection requires the model to advertise reasoning Off or None; otherwise use manual selection. The auxiliary request has a 512-token output limit and a 45-second deadline after output begins. Queueing, loading and prefill fall under the cancellable outer limit. It is an additional model request with its own latency and usage.
+Capability searches use names, descriptions and registered input documentation. Tool and skill rankings are separate. The shortlist contains at most ten candidates in 10,000 characters. Models that advertise Off or None use that setting. Other models use their default. The auxiliary request has a 512-token output limit and a 45-second deadline after output begins. Queueing, loading and prefill fall under the cancellable outer limit. It is an additional model request with its own latency and usage.
 
 To use **manual selection**, turn off Fast tool selection. The model can then search or browse catalog metadata, add useful names, or decline the suggestions. `add`, `none` and `close` finish the tool-picker step; `close_tools` separately removes selected definitions. While a manual selection is pending, the model must finish that choice before running task tools.
 
@@ -99,7 +101,7 @@ Settings and optional embedding data live under `$DSH_HOME/dsh-tool-manager/`, n
 
 ## Install and develop
 
-Supports DeepSeek Harness `>=0.2.1-rc.2 <0.3.0-0`. Install through DSH's GitHub plugin route or its CLI:
+Supports DeepSeek Harness `0.2.2-rc.4`. Install through DSH's GitHub plugin route or its CLI:
 
 ```sh
 dsh plugin --profile web add /absolute/path/to/dsh-tool-manager --config.ignore-scripts=true

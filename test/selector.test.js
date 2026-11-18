@@ -6,9 +6,17 @@ function runtime({choice={names:['browser_click'],skills:[]},efforts=[{id:'off'}
 test('selector sees only bounded catalog metadata, uses advertised off, and returns a validated choice',async()=>{
  const llm=runtime();const selected=await chooseTools(llm,route,{task:'click the page',keywords:['browser'],candidates});assert.deepEqual(selected.names,['browser_click']);const req=llm.requests[0];assert.equal(req.reasoningEffort,'off');assert.equal(req.model,'model');assert.equal(req.maxTokens,512);assert.equal(req.sessionId,undefined);assert.equal(req.messages.length,1);assert.deepEqual(req.tools.map(t=>t.name),['select_tools']);assert.equal(selected.trace.stages.length,2);
 });
-test('no matches require no model request; unsupported off does not silently think',async()=>{
+test('no matches require no model request; models without off use their default reasoning',async()=>{
  const r=await chooseTools(null,null,{task:'unmatched',candidates:[]});assert.deepEqual(r.names,[]);
- const llm=runtime({efforts:[{id:'low'}]});await assert.rejects(chooseTools(llm,route,{task:'click',candidates}),/does not advertise reasoning off/);assert.equal(llm.requests.length,0);
+ const llm = runtime({efforts: [{id: 'high'}], chunks: [
+  {type: 'reasoning-delta', text: 'Considering the candidates'},
+  {type: 'usage', usage: {reasoningTokens: 12}},
+  {type: 'block-end', index: 1, block: {type: 'tool-call', name: 'select_tools', arguments: '{"names":["browser_click"]}'}},
+  {type: 'finish', reason: {kind: 'tool-calls'}}
+ ]});
+ const selected = await chooseTools(llm,route,{task:'click',candidates});
+ assert.deepEqual(selected.names,['browser_click']);
+ assert.equal(Object.hasOwn(llm.requests[0],'reasoningEffort'),false);
 });
 test('invented or malformed selections get one repair and never activate invalid names',async()=>{
  for(const choice of [{names:['invented'],skills:[]},{names:[],skills:['hidden']},{names:['browser_click'],skills:[],execute:'bash'}]){
