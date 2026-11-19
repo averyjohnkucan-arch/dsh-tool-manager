@@ -1,6 +1,6 @@
 {
   "name": "dsh-tool-manager",
-  "version": "1.0.0-rc4.0",
+  "version": "1.0.0-rc4.1",
   "type": "module",
   "license": "MIT",
   "description": "Choose which DSH tools stay loaded and which remain hidden behind tool search.",

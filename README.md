@@ -16,7 +16,7 @@ The model receives one short prompt line such as:
 It can then use:
 
 ```text
-browse_tools(action="search", query="edit a spreadsheet")
+browse_tools(action="search", query="spreadsheet formulas cells")
 browse_tools(action="load", names=["office_write_range"])
 browse_tools(action="unload", names=["office_write_range"])
 ```

@@ -83,7 +83,7 @@ export async function apply(ctx,config){
   const catalog=inspect(agent);
   const selected=new Set(state(agent).selected);
   const count=catalog.filter(tool=>tool.mode==='hidden'&&!selected.has(tool.name)).length;
-  return count?`${count} additional tools are hidden and available through browse_tools. If the visible tools do not fit the task, search by capability, then load the exact tool names you need.`:'';
+  return count?`${count} additional tools are hidden and available through browse_tools. If the visible tools do not fit the task, search with a short capability description or two to five keywords, then load the exact tool names you need.`:'';
  }}));
 
  const output={
@@ -94,10 +94,10 @@ export async function apply(ctx,config){
  const publicTool=tool=>({name:tool.name,description:tool.description,owner:tool.owner});
  ctx.effect(()=>ctx.tools.register(defineTool({
   name:'browse_tools',
-  description:'Search tools hidden by Tool Manager, load exact tool names into this conversation, or unload tools loaded earlier. Search does not execute a tool.',
+  description:'Search tools hidden by Tool Manager, load exact tool names into this conversation, or unload tools loaded earlier. For search, describe the capability you need or provide two to five relevant keywords. Search returns matching tool metadata and does not execute a tool.',
   parameters:{
    action:{type:'string',enum:['search','load','unload'],required:true},
-   query:{type:'string',description:'Capability to search for. Used only with search.',default:''},
+   query:{type:'string',description:'A short capability description or two to five relevant keywords. Examples: "edit spreadsheet formulas" or "email calendar scheduling". Used only with action="search".',default:''},
    names:{type:'array',items:{type:'string'},description:'Exact tool names returned by search. Used with load or unload.',default:[]},
    limit:{type:'integer',description:'Maximum search results from 1 to 20.',default:8},
   },
