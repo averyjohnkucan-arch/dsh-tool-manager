@@ -27,7 +27,7 @@ window.__ModuleLoader__.load({id:'dsh-tool-manager',factory:require=>{
   const change=(name,mode)=>setDraft(current=>({...current,tools:{...current.tools,[name]:mode}}));
   const save=async()=>{setBusy(true);setNotice('');try{const value=await api('save',draft);setData(value);setDraft(value.settings);setNotice('Saved. New model steps now use this tool list.');setError('');}catch(problem){setError(problem.message);}finally{setBusy(false);}};
   return h('section',{className:'dtm'},h('style',null,css),h('h2',null,'Tool Manager'),
-   h('p',null,'DSH tools stay loaded. Every other registered tool is either Loaded or Hidden behind browse_tools search.'),
+   h('p',null,'DSH tools stay loaded. Every other registered tool is either Loaded or Hidden behind Tool Selection.'),
    error&&h('p',{className:'dtm-error',role:'alert'},error),notice&&h('p',{className:'dtm-status',role:'status'},notice),
    h('div',{className:'dtm-toolbar'},h('input',{className:'dtm-search','aria-label':'Search tools',placeholder:'Find a tool…',value:query,onChange:event=>setQuery(event.target.value)}),h('button',{disabled:busy,onClick:()=>load('refresh')},'Refresh'),h('button',{className:'dtm-save',disabled:busy,onClick:save},busy?'Saving…':'Save')),
    h('div',{className:'dtm-counts'},`${counts.loaded} loaded · ${counts.hidden} hidden · ${data.tools.length} total`),

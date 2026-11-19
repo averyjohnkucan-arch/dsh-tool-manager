@@ -8,7 +8,7 @@ import {defaults} from '../lib/settings.js';
 
 test('DSH, browser, Harness, and control tools stay loaded while third-party tools default hidden',()=>{
  const owners=new Map([['future_stock_tool',new Set(['@deepseek-ai/dsh-tool-future'])]]);
- const names=['read','browser_click','harness_status','future_stock_tool','browse_tools','third_party_tool'];
+ const names=['read','browser_click','harness_status','future_stock_tool','tool_selection','third_party_tool'];
  const result=rows(names.map(name=>({name,description:name})),defaults(),owners,new Set(names));
  for(const name of names.slice(0,-1)){const tool=result.find(row=>row.name===name);assert.equal(tool.mode,'loaded',name);assert.equal(tool.stock,true,name);}
  const third=result.at(-1);assert.equal(third.mode,'hidden');assert.equal(third.filterable,true);

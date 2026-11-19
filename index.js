@@ -9,7 +9,8 @@ import {fileURLToPath} from 'node:url';
 import {Settings} from './lib/settings.js';
 import {provenance,rows} from './lib/catalog.js';
 import {search} from './lib/search.js';
-import {KEY,CONTROL,empty,fold,select,unselect,valid} from './lib/state.js';
+import {chooseTools} from './lib/selector.js';
+import {KEY,CONTROL,empty,fold,select,valid} from './lib/state.js';
 
 export const inject=['tools','systemPrompt','sessionProjections','agents','webServer'];
 export const Config=Schema.object({dataDir:Schema.string().default('')});
@@ -69,10 +70,11 @@ export async function apply(ctx,config){
  function refreshAll(){for(const agent of ctx.agents.list())inspect(agent);}
 
  ctx.on('tools/change',()=>{if(changing||disposed)return;for(const value of records.values())value.dirty=true;});
+ ctx.on('agent/request',async({agent},next)=>{const request=await next();record(agent).route={provider:request.provider,model:request.model};return request;});
  ctx.on('agent/created',({agent})=>inspect(agent));
  ctx.on('agent/disposed',({agent})=>{records.get(agent)?.mask?.();records.delete(agent);});
  ctx.on('session/event',(session,event)=>{
-  if(!['tool/result','tool/ptc-dispatch'].includes(event.type)||event.surfaceOp?.op==='replace')return;
+  if(!['tool/result','tool/ptc-dispatch','compaction/end'].includes(event.type)||event.surfaceOp?.op==='replace')return;
   for(const [agent,value] of records)if(agent.session===session){value.dirty=true;inspect(agent);}
  });
  ctx.effect(()=>()=>{disposed=true;for(const value of records.values())value.mask?.();records.clear();});
@@ -83,58 +85,45 @@ export async function apply(ctx,config){
   const catalog=inspect(agent);
   const selected=new Set(state(agent).selected);
   const count=catalog.filter(tool=>tool.mode==='hidden'&&!selected.has(tool.name)).length;
-  return count?`${count} additional tools are hidden and available through browse_tools. If the visible tools do not fit the task, search with a short capability description or two to five keywords, then load the exact tool names you need.`:'';
+  return count?`${count} additional tools are available through tool_selection. If the visible tools do not fit the task, call tool_selection with a short task description and two to five relevant keywords. That one call searches, selects up to eight tools with reasoning off when supported, and loads their schemas for the next step.`:'';
  }}));
 
  const output={
   schema:{type:'object',additionalProperties:true},
-  render:(_args,value)=>[{type:'text',text:JSON.stringify(value.visible)}],
-  presentationMeta:(_args,value)=>({toolManager:{owner:KEY,state:value.state}}),
+  render:(_args,value)=>[{type:'text',text:value.receipt}],
+  presentationMeta:(_args,value)=>({toolManager:{owner:KEY,state:value.state,audit:value.audit}}),
  };
  const publicTool=tool=>({name:tool.name,description:tool.description,owner:tool.owner});
  ctx.effect(()=>ctx.tools.register(defineTool({
-  name:'browse_tools',
-  description:'Search tools hidden by Tool Manager, load exact tool names into this conversation, or unload tools loaded earlier. For search, describe the capability you need or provide two to five relevant keywords. Search returns matching tool metadata and does not execute a tool.',
+  name:'tool_selection',
+  description:'Find and load additional tools in one call. Describe the capability you need and optionally provide two to five relevant keywords. Tool Selection locally searches hidden tools, shortlists up to eight matches, asks a constrained auxiliary selector to choose the smallest sufficient set with reasoning Off/None when the model supports it, and loads the selected schemas for the next model step. When Off/None is unavailable it uses the model-default fallback behavior. The result is only a compact receipt naming the selected tools; shortlist metadata and selection details stay out of conversational context.',
   parameters:{
-   action:{type:'string',enum:['search','load','unload'],required:true},
-   query:{type:'string',description:'A short capability description or two to five relevant keywords. Examples: "edit spreadsheet formulas" or "email calendar scheduling". Used only with action="search".',default:''},
-   names:{type:'array',items:{type:'string'},description:'Exact tool names returned by search. Used with load or unload.',default:[]},
-   limit:{type:'integer',description:'Maximum search results from 1 to 20.',default:8},
+   task:{type:'string',description:'Short description of the capability needed. Example: "edit formulas in a spreadsheet".',required:true},
+   keywords:{type:'array',items:{type:'string'},description:'Two to five focused search terms. Example: ["spreadsheet", "formulas", "cells"].',default:[]},
   },
   output,
   execute:async(args,exec)=>{
    if(!exec.agent)throw Error('A live agent is required.');
    const catalog=inspect(exec.agent);
    const current=state(exec.agent);
-   if(args.action==='search'){
-    const query=String(args.query||'').trim();
-    if(!query||query.length>1000)throw Error('Provide a search query up to 1,000 characters.');
-    const limit=Math.min(20,Math.max(1,args.limit||8));
-    const selected=new Set(current.selected);
-    const available=catalog.filter(tool=>tool.mode==='hidden'&&!selected.has(tool.name));
-    const matches=search(available,query,limit);
-    return{state:current,visible:{matches:matches.map(publicTool),count:matches.length,next:matches.length?'Call browse_tools with action="load" and exact names from these results.':'No hidden tools matched.'}};
-   }
-   const names=[...new Set(args.names||[])];
-   if(!names.length||names.length>20||names.some(name=>typeof name!=='string'||name.length>256))throw Error('Provide 1 to 20 exact tool names.');
-   if(args.action==='load'){
-    const allowed=new Set(catalog.filter(tool=>tool.mode==='hidden').map(tool=>tool.name));
-    const invalid=names.filter(name=>!allowed.has(name));
-    if(invalid.length)throw Error(`Not a hidden tool: ${invalid.join(', ')}`);
-    const next=select(current,names);
-    return{state:next,visible:{loaded:names,next:'The loaded tools are available on the next model step.'}};
-   }
-   const invalid=names.filter(name=>!current.selected.includes(name));
-   if(invalid.length)throw Error(`Not loaded by Tool Manager: ${invalid.join(', ')}`);
-   const next=unselect(current,names);
-   return{state:next,visible:{unloaded:names}};
+   const task=String(args.task||'').trim(),keywords=args.keywords||[];
+   if(!task||task.length>1000||!Array.isArray(keywords)||keywords.length>5||keywords.some(keyword=>typeof keyword!=='string'||!keyword.trim()||keyword.length>80))throw Error('Provide a short task and at most five focused keywords.');
+   const query=[task,...keywords].join(' ');
+   const selected=new Set(current.selected);
+   const available=catalog.filter(tool=>tool.mode==='hidden'&&!selected.has(tool.name));
+   const matches=search(available,query,8);
+   const route=exec.agent.session.requestHeader()?.config||record(exec.agent).route;
+   const choice=await chooseTools(exec.agent.ctx.get('llm'),route,{query,candidates:matches.map(publicTool),maxSelect:8,signal:exec.signal});
+   const next=choice.names.length?select(current,choice.names):current;
+   const receipt=choice.names.length?`Model selected ${choice.names.join(', ')}.`:'Model selected no additional tools.';
+   return{state:next,receipt,audit:{query,shortlist:matches.map(publicTool),selector:{mode:choice.mode,...(choice.reasoningEffort?{reasoningEffort:choice.reasoningEffort}:{}),...(choice.usage?{usage:choice.usage}:{})},selected:choice.names}};
   },
  })));
 
  ctx.effect(()=>ctx.tools.guard(exec=>{
   if(!exec.agent||CONTROL.includes(exec.name))return;
   const tool=inspect(exec.agent).find(row=>row.name===exec.name);
-  if(tool?.mode==='hidden'&&!state(exec.agent).selected.includes(exec.name))return 'This tool is hidden. Search and load it through browse_tools first.';
+  if(tool?.mode==='hidden'&&!state(exec.agent).selected.includes(exec.name))return 'This tool is hidden. Load it through tool_selection first.';
  }));
 
  const token=randomBytes(32).toString('base64url');

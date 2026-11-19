@@ -13,7 +13,7 @@ import {createScope} from '@deepseek-ai/dsh-scope';
 import {executeOne} from './execute-one.js';
 import {apply} from '../index.js';
 
-test('hidden tools can be searched, loaded, called, and unloaded while stock stays visible',async t=>{
+test('one compact Tool Selection call searches and loads while stock stays visible',async t=>{
  const directory=await mkdtemp(join(tmpdir(),'simple-tool-live-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  const ctx=new Context();new SystemPrompt(ctx,{});new ToolRuntime(ctx);installNativeExecutor(ctx);new SessionStore(ctx);new Projection(ctx);
  const agents=[];new(class extends Service{constructor(){super(ctx,'agents');}list(){return agents;}})();new(class extends Service{constructor(){super(ctx,'webServer');}register(){return()=>{};}getOrigin(){return'http://127.0.0.1:3099';}})();
@@ -23,13 +23,11 @@ test('hidden tools can be searched, loaded, called, and unloaded while stock sta
  await apply(ctx,{dataDir:directory});
  const invoke=(name,args)=>executeOne(ctx,{callId:name+Math.random(),name,arguments:args,agent,signal:new AbortController().signal});
  assert.ok(ctx.tools.get('read',agent));assert.equal(ctx.tools.get('office_write',agent),undefined);
- const searched=await invoke('browse_tools',{action:'search',query:'spreadsheet cells'});assert.equal(searched.isError,false);assert.match(JSON.stringify(searched.content),/office_write/);
- const loaded=await invoke('browse_tools',{action:'load',names:['office_write']});assert.equal(loaded.isError,false);
- agent.session.append('tool/result',{turn:0,step:0,message:{id:'loaded',role:'tool',toolCallId:'load',content:loaded.content,source:{kind:'tool',name:'browse_tools'}},meta:loaded.meta},{surfaceOp:'append'});
+ const searched=await invoke('tool_selection',{task:'write spreadsheet cells',keywords:['spreadsheet','cells']});assert.equal(searched.isError,false);assert.equal(JSON.stringify(searched.content),'[{"type":"text","text":"Model selected office_write."}]');assert.doesNotMatch(JSON.stringify(searched.content),/shortlist|description|selector/);
+ agent.session.append('tool/result',{turn:0,step:0,message:{id:'searched',role:'tool',toolCallId:'search',content:searched.content,source:{kind:'tool',name:'tool_selection'}},meta:searched.meta},{surfaceOp:'append'});
  assert.ok(ctx.tools.get('office_write',agent));assert.equal((await invoke('office_write',{})).isError,false);
- const unloaded=await invoke('browse_tools',{action:'unload',names:['office_write']});assert.equal(unloaded.isError,false);
- agent.session.append('tool/result',{turn:0,step:0,message:{id:'unloaded',role:'tool',toolCallId:'unload',content:unloaded.content,source:{kind:'tool',name:'browse_tools'}},meta:unloaded.meta},{surfaceOp:'append'});
+ agent.session.append('compaction/end',{compactionId:'done',turn:0});
  assert.equal(ctx.tools.get('office_write',agent),undefined);assert.ok(ctx.tools.get('read',agent));
- const prompt=await ctx.systemPrompt.assemble({scope:agent});assert.match(JSON.stringify(prompt),/1 additional tools are hidden/);
+ const prompt=await ctx.systemPrompt.assemble({scope:agent});assert.match(JSON.stringify(prompt),/1 additional tools are available through tool_selection/);
  await scope.dispose();await ctx.fiber.dispose();
 });
